@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
 
-default_cmap_table = plt.get_cmap('YlGn')(np.linspace(0.03, 0.6, 5))[:, :3]
+default_cmap_table = plt.get_cmap('YlGn')(np.linspace(0.03, 0.6, 5))[:, :3] * 255
 
 maxscore = 10.
 
@@ -45,11 +45,21 @@ class HotSpotData(object):
         self.resdata.to_excel(fname, sheet_name='ResourceData', index=False)
         fname.close()
 
-    def write_table_legend(self, fname='default_legend.html',
-                           colors=default_cmap_table):
-        colors = np.array(colors) * 255
+    def _write_table_legend(self, fname='default_legend.html',
+                            colors=default_cmap_table):
+        """
+        Write the table legend for the colormap specified by `colors`
+        to `fname`. `colors` should be the same colormap used to write
+        an html table using :meth:`to_html`.
+
+        Parameters
+        ----------
+
+        fname : string
+
+        """
         ncolor = colors.shape[0]
-        if np.mod(maxscore / ncolor, 1) == 0:
+        if (maxscore / ncolor % 1) == 0:
             frmt = '%d'
         else:
             frmt = '%0.1f'
@@ -59,47 +69,74 @@ class HotSpotData(object):
             dat[idx] = dat[idx] % (vl - maxscore / ncolor, vl)
         dat[0] = dat[0].replace('(', '[')
         dat = dat[::-1]
-        tbl = pd.DataFrame({'Score': dat}).to_html(index=False)
-        tbl = tbl.replace(r'border="1" ', 'style="border-collapse: collapse; text-align:center;"')
+        tbl = pd.DataFrame({'Score': dat}).to_html(index=False) + '\n'
+        tbl = tbl.replace(r'border="1" ',
+                          'style="border-collapse: collapse; text-align:center;"')
         tbl = tbl.replace('<td', '<td style="%s"')
         out = np.empty(ncolor, dtype='O')
         for idx in xrange(ncolor):
             out[idx] = 'background-color:rgb(%d, %d, %d)' % tuple(colors[idx])
         out = out[::-1]
         tbl = tbl % tuple(out)
-        if not (fname.endswith('.htm') | fname.endswith('.html')):
-            fname += '.html'
-        with open(fname, 'w') as f:
-            f.write(tbl)
+        if basestring in fname.__class__.__mro__:
+            if not (fname.endswith('.htm') | fname.endswith('.html')):
+                fname += '.html'
+            with open(fname, 'w') as fl:
+                fl.write(tbl)
+        else:
+            fname.write(tbl)
 
     def to_html(self, fname,
                 columns=['energy_cost', 'load', 'dist',
                          'resource', 'depth', 'shipping', 'score_total'],
                 colors=default_cmap_table,
-                hline_widths=[2, 1],
+                hline_widths=None,
+                include_legend=True,
                 ):
-        colors = np.array(colors) * 255
         dat = self.data[columns]
-        tbl = dat.to_html(float_format=lambda s: ('%0.1f' % s))
+        tbl = dat.to_html(float_format=lambda s: ('%0.1f' % s)) + '\n'
         tbl = tbl.replace(r'border="1" ', 'style="border-collapse: collapse;"')
-        tbl = tbl.replace('<td', '<td style="%s"')
-        out = np.empty_like(dat, dtype='O')
-        out[:] = ''
-        for idx in xrange(dat.shape[0]):
-            for ic, col in enumerate(columns):
+        form = np.empty_like(dat, dtype='O')
+        form[:] = ''
+        tbl = tbl.replace('<th>',
+                          '<th style="border-bottom:solid %0.1fpt;">' % hline_widths[0],
+                          len(columns) + 1)  # +1 for index
+        for irow in xrange(dat.shape[0]):
+            # This is for the first (index) column:
+            if hline_widths is not None:
+                lw_txt = ('border-bottom:solid %0.1fpt; ' %
+                          hline_widths[(irow + 1) % len(hline_widths)])
+            else:
+                lw_txt = ''
+            print lw_txt
+            tbl = tbl.replace('<th>',
+                              '<th style="text-align:left; %s">' % lw_txt,
+                              1)
+            form[irow] += lw_txt
+            for icol, col in enumerate(columns):
+                tbl = tbl.replace('<td>',
+                                  '<td style="text-align:right; {form[%d][%d]}">' % (irow, icol),
+                                  1)
                 if col.startswith('score_'):
                     col_score = col
                 else:
                     col_score = 'score_' + col
                 if col_score in self.data:
-                        ind_clr = int((self.data[col_score][idx]) / maxscore * colors.shape[0])
-                        ind_clr = min(ind_clr, colors.shape[0] - 1)
-                        out[idx, ic] = 'background-color:rgb(%d, %d, %d)' % tuple(colors[ind_clr])
-        tbl = tbl % tuple(out.flatten())
-        if not (fname.endswith('.htm') | fname.endswith('.html')):
-            fname += '.html'
-        with open(fname, 'w') as f:
-            f.write(tbl)
+                    ind_clr = int((self.data[col_score][irow]) / maxscore * colors.shape[0])
+                    ind_clr = min(ind_clr, colors.shape[0] - 1)
+                    form[irow, icol] += 'background-color:rgb(%d, %d, %d); ' % tuple(colors[ind_clr])
+        tbl = tbl.format(form=form)
+        if basestring in fname.__class__.__mro__:
+            if not (fname.endswith('.htm') | fname.endswith('.html')):
+                fname += '.html'
+            with open(fname, 'w') as fl:
+                fl.write(tbl)
+                if include_legend:
+                    self._write_table_legend(fl, colors=colors)
+        else:
+            fl.write(tbl)
+            if include_legend:
+                self.write_table_legend(fl)
 
     def to_csv(self, fname, resource_fname=None):
         """
