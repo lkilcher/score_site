@@ -1,5 +1,10 @@
 import pandas as pd
 import numpy as np
+from matplotlib import pyplot as plt
+
+default_cmap_table = plt.get_cmap('YlGn')(np.linspace(0.03, 0.6, 5))[:, :3]
+
+maxscore = 10.
 
 
 class HotSpotData(object):
@@ -14,10 +19,7 @@ class HotSpotData(object):
         self.resdata = resdata
 
     def __getitem__(self, val):
-        out = self.data.loc[val]
-        out.resdata = self.resdata[self.resdata.name == val]
-        out.set_value('max_resource', max(out.resdata.resource))
-        return out
+        return self.__class__(self.data.iloc[val].copy(), self.resdata)
 
     def to_excel(self, fname):
         """
@@ -42,6 +44,62 @@ class HotSpotData(object):
         self.data.to_excel(fname, sheet_name='SiteData')
         self.resdata.to_excel(fname, sheet_name='ResourceData', index=False)
         fname.close()
+
+    def write_table_legend(self, fname='default_legend.html',
+                           colors=default_cmap_table):
+        colors = np.array(colors) * 255
+        ncolor = colors.shape[0]
+        if np.mod(maxscore / ncolor, 1) == 0:
+            frmt = '%d'
+        else:
+            frmt = '%0.1f'
+        vls = np.linspace(maxscore / ncolor, 10, ncolor)
+        dat = np.array(['(' + frmt + ' - ' + frmt + ']'] * ncolor, dtype='S10')
+        for idx, vl in enumerate(vls):
+            dat[idx] = dat[idx] % (vl - maxscore / ncolor, vl)
+        dat[0] = dat[0].replace('(', '[')
+        dat = dat[::-1]
+        tbl = pd.DataFrame({'Score': dat}).to_html(index=False)
+        tbl = tbl.replace(r'border="1" ', 'style="border-collapse: collapse; text-align:center;"')
+        tbl = tbl.replace('<td', '<td style="%s"')
+        out = np.empty(ncolor, dtype='O')
+        for idx in xrange(ncolor):
+            out[idx] = 'background-color:rgb(%d, %d, %d)' % tuple(colors[idx])
+        out = out[::-1]
+        tbl = tbl % tuple(out)
+        if not (fname.endswith('.htm') | fname.endswith('.html')):
+            fname += '.html'
+        with open(fname, 'w') as f:
+            f.write(tbl)
+
+    def to_html(self, fname,
+                columns=['energy_cost', 'load', 'dist',
+                         'resource', 'depth', 'shipping', 'score_total'],
+                colors=default_cmap_table,
+                hline_widths=[2, 1],
+                ):
+        colors = np.array(colors) * 255
+        dat = self.data[columns]
+        tbl = dat.to_html(float_format=lambda s: ('%0.1f' % s))
+        tbl = tbl.replace(r'border="1" ', 'style="border-collapse: collapse;"')
+        tbl = tbl.replace('<td', '<td style="%s"')
+        out = np.empty_like(dat, dtype='O')
+        out[:] = ''
+        for idx in xrange(dat.shape[0]):
+            for ic, col in enumerate(columns):
+                if col.startswith('score_'):
+                    col_score = col
+                else:
+                    col_score = 'score_' + col
+                if col_score in self.data:
+                        ind_clr = int((self.data[col_score][idx]) / maxscore * colors.shape[0])
+                        ind_clr = min(ind_clr, colors.shape[0] - 1)
+                        out[idx, ic] = 'background-color:rgb(%d, %d, %d)' % tuple(colors[ind_clr])
+        tbl = tbl % tuple(out.flatten())
+        if not (fname.endswith('.htm') | fname.endswith('.html')):
+            fname += '.html'
+        with open(fname, 'w') as f:
+            f.write(tbl)
 
     def to_csv(self, fname, resource_fname=None):
         """
