@@ -1,9 +1,13 @@
-from copy import deepcopy
 import pandas as pd
 import numpy as np
 
 
 class HotSpotData(object):
+
+    """
+    A data object for holding site and resource data for performing
+    site-scoring, ranking and other analysis operations.
+    """
 
     def __init__(self, data, resdata):
         self.data = data
@@ -16,16 +20,57 @@ class HotSpotData(object):
         return out
 
     def to_excel(self, fname):
+        """
+        Write the data in this data object to a Microsoft Excel file (.xlsx).
+
+        Parameters
+        ----------
+
+        fname : string
+                The filename to write to.
+
+        Notes
+        -----
+        If fname does not end in .xlsx or .xls, '.xlsx' will be appended
+        to the file name.
+
+        """
         if basestring in fname.__class__.__mro__:
+            if not (fname.endswith('.xlsx') or fname.endswith('.xls')):
+                fname += '.xlsx'
             fname = pd.io.excel.ExcelWriter(fname)
         self.data.to_excel(fname, sheet_name='SiteData')
         self.resdata.to_excel(fname, sheet_name='ResourceData', index=False)
         fname.close()
 
-    def to_csv(self, fname):
-        fname = fname.rstrip('.csv')
+    def to_csv(self, fname, resource_fname=None):
+        """
+        Write the site-data in this object to a comma-separated-value (csv)
+        file.
+
+        Parameters
+        ----------
+
+        fname : string
+                The filename to write to.
+
+        resource_fname : string (optional)
+                         If specified, the resource data will be
+                         written to this file.
+
+        Notes
+        -----
+        If the fname (or resource_fname) do not end in .csv, that file
+        extension will be added to the file name.
+
+        """
+        if not fname.endswith('.csv'):
+            fname += '.csv'
         self.data.to_csv(fname + '.csv',)
-        self.resdata.to_csv(fname + '_res.csv', index=False)
+        if resource_fname is not None:
+            if not resource_fname.endswith('.csv'):
+                resource_fname += '.csv'
+            self.resdata.to_csv(resource_fname, index=False)
 
     def __repr__(self,):
         return self.data.__repr__()
@@ -35,7 +80,22 @@ class HotSpotData(object):
 
     copy = __copy__
 
-    def rank(self, clear_0_nan=True):
+    def rank(self, clear_0_nan=True, ):
+        """
+        Sort the site-data by the 'score_total' column (secondary
+        sorted by: load).
+
+        The resource-data will be sorted by 'name', then 'score_total'
+        then 'resource'.
+
+        Parameters
+        ----------
+
+        clear_0_nan : {True*, False}
+                      Specifies whether to clear site entries that
+                      have a score of zero or NaN.
+
+        """
         bdi = np.isnan(self.data['score_total']) | (self.data['score_total'] == 0)
         resbdi = np.isnan(self.resdata['score_total'])
         if clear_0_nan:
@@ -52,147 +112,6 @@ class HotSpotData(object):
         if not clear_0_nan:
             self.data['score_total'][bdi] = np.NaN
             self.resdata['score_total'][resbdi] = np.NaN
-
-
-class SumModel(object):
-
-    def __repr__(self,):
-        outstr = "'%s' site scoring %s:\n" % (
-            self.tag,
-            str(self.__class__).rstrip("'>").split('.')[-1],
-            )
-        outstr += self.tables.__repr__()
-        return outstr
-
-    def __init__(self, tag=None, **kwargs):
-        self.tables = deepcopy(kwargs)
-        self.resource_vars = list(set(self.tables.keys()) &
-                                  {'dist', 'resource', 'depth'})
-        self.tag = tag
-
-    ## def __getitem__(self, val):
-    ##     if val.__class__ in [tuple, list]:
-    ##         return self.__class__(**{nm:self.tables[nm] for nm in val if nm in self.tables})
-    ##     else:
-    ##         return self.tables[val]
-
-    def __copy__(self, model_class=None, tag=None, **kwargs):
-        if model_class is None:
-            model_class = self.__class__
-        tables = deepcopy(self.tables)
-        tables.update(**kwargs)
-        return model_class(tag=tag, **tables)
-
-    copy = __copy__
-
-    def _norm_weights(self, subset=None):
-        wnorm = 0.
-        nms = self.tables.keys()
-        if subset is not None:
-            nms = [nm for nm in nms if nm in subset]
-        for nm in nms:
-            wnorm += self.tables[nm].weight
-        out = {}
-        for nm in nms:
-            out[nm] = self.tables[nm].weight / wnorm
-        return out
-
-    def _calc_total(self, data, weights):
-        score = pd.Series(np.zeros(len(data.index)),
-                          index=data.index)
-        for nm, w in weights.iteritems():
-            score += data['score_' + nm] * weights[nm]
-        return score
-
-    def _score_it(self, data, names=None):
-        """
-        Score the `data` according to the tables in this model.
-        """
-        weights = self._norm_weights(names)
-        for nm in weights:
-            # Score the resource data:
-            data['score_' + nm] = self.tables[nm](data[nm])
-        data['score_total'] = self._calc_total(data, weights)
-        return data
-
-    def _assign_resource2site(self, out):
-        """
-        Add columns to the site data that contain the highest-scoring
-        resource data.
-        """
-        for nm in self.resource_vars:
-            # Initialize the columns of the site data:
-            out.data[nm] = pd.Series(np.zeros(len(out.data.index)),
-                                     index=out.data.index)
-        for site in out.data.index:
-            inds = (out.resdata.name == site)
-            if inds.sum() == 0 or np.isnan(out.resdata['score_total'][inds]).all():
-                idx = None
-            else:
-                idx = np.argmax(out.resdata['score_total'][inds])
-            for nm in self.resource_vars:
-                if idx is None:
-                    val = np.NaN
-                else:
-                    val = out.resdata[nm][idx]
-                out.data[nm][site] = val
-
-    def __call__(self, data):
-        """
-        Score the `data` according to this model.
-        """
-        out = data.copy()
-        # Calculate the resource data scores:
-        self._score_it(out.resdata, self.resource_vars)
-        # Assign the highest ranking resource data to the site data:
-        self._assign_resource2site(out)
-        # Now score the site data:
-        self._score_it(out.data)
-        return out
-
-
-class ProdModel(SumModel):
-
-    def _calc_total(self, data, weights):
-        score = pd.Series(np.ones(len(data.index)),
-                          index=data.index)
-        for nm, w in weights.iteritems():
-            score *= data['score_' + nm] ** weights[nm]
-        return score
-
-
-class MultiModel(object):
-
-    """
-    A class for computing scores for several models, and selecting
-    data from the highest scoring one.
-    """
-
-    def __init__(self, *args):
-        self.models = args
-
-    def __call__(self, data):
-        tag = pd.Series(np.empty(len(data.data.index), dtype='S20'),
-                        index=data.data.index, )
-        restag = pd.Series(np.empty(len(data.resdata.index), dtype='S20'),
-                           index=data.resdata.index, )
-        tag[:] = self.models[0].tag
-        restag[:] = self.models[0].tag
-        for idx, mdl in enumerate(self.models):
-            now = mdl(data)
-            if idx == 0:
-                out = now
-            else:
-                inds = now.data['score_total'] > out.data['score_total']
-                out.data[inds] = now.data[inds]
-                tag[inds] = mdl.tag
-                inds = now.resdata['score_total'] > out.resdata['score_total']
-                out.resdata[inds] = now.resdata[inds]
-                restag[inds] = mdl.tag
-        out.data['best_model'] = tag
-        out.resdata['best_model'] = restag
-
-        return out
 
 
 def score_data(data, spec):
