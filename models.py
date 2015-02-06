@@ -85,6 +85,7 @@ class SumModel(object):
         Score the `data` according to this model.
         """
         out = data.copy()
+        out.model = self
         # Calculate the resource data scores:
         self._score_it(out.resdata, self.resource_vars)
         # Assign the highest ranking resource data to the site data:
