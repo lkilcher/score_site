@@ -157,7 +157,7 @@ class HotSpotData(object):
         if basestring in buf.__class__.__mro__:
             if not (buf.endswith('.xlsx') or buf.endswith('.xls')):
                 buf += '.xlsx'
-            buf = pd.io.excel.ExcelWriter(buf)
+            buf = pd.io.excel.ExcelWriter(buf, 'openpyxl')
         self.data.to_excel(buf, sheet_name='SiteData')
         self.resdata.to_excel(buf, sheet_name='ResourceData', index=False)
         buf.close()
@@ -225,7 +225,7 @@ class HotSpotData(object):
                           '<th style="border-bottom:solid %0.1fpt;">' % hline_widths[0],
                           len(columns) + 1)  # +1 for index
         if self.model is not None and weights_in_head:
-            for var, t in self.model.tables.iteritems():
+            for var, t in self.model.scorers.iteritems():
                 tbl = tbl.replace(var, var + ' (%0.1g)' % (t.weight,), 1)
         for irow in xrange(dat.shape[0]):
             # This is for the first (index) column:
@@ -332,57 +332,3 @@ class HotSpotData(object):
         if not clear_0_nan:
             self.data['score_total'][bdi] = np.NaN
             self.resdata['score_total'][resbdi] = np.NaN
-
-
-def score_data(data, spec):
-    """
-    This function uses the score table (or array) `spec` to calculate
-    the scores for the data points in `data`.
-    """
-
-    # This if statement 'block' makes sure `data` is in the right
-    # 'format' (object type)
-    if data.__class__ is pd.Series:
-        data = data.values
-    elif np.ndarray not in data.__class__.__mro__:
-        if not np.iterable(data):
-            data = [data]
-        data = np.array(data)
-
-    # First initialize the output array.
-    # Values not specified in the table should be NaN.
-    out = np.zeros(data.shape) * np.NaN
-
-    # Now perform a 'for loop' over the min, max, score values:
-    for mn, mx, score in spec:
-        # Test that data is within the range, and assign scores:
-        out[((mn < data) & (data <= mx))] = score
-    return out  # Return the output data from the function.
-
-
-class ScoreTable(object):
-
-    def __init__(self, table, weight=1):
-        if np.array not in table.__class__.__mro__:
-            self.table = np.array(table)
-        self.weight = weight
-
-    def __copy__(self,):
-        return self.__class__(self.table.copy(), weight=self.weight)
-
-    copy = __copy__
-
-    def __repr__(self,):
-        outstr = 'WEIGHT: %4.2f\n------ Range --------- :  Score\n' % (self.weight, )
-        for v in self.table:
-            outstr += ' %9.1f - %9.1f : %5.1f\n' % tuple(v)
-        return outstr
-
-    def __call__(self, data):
-        return score_data(data, self.table)
-
-    def sumweight(self, data):
-        return self(data) * self.weight
-
-    def prodweight(self, data):
-        return self(data) ** self.weight

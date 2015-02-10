@@ -10,34 +10,34 @@ class SumModel(object):
             self.tag,
             str(self.__class__).rstrip("'>").split('.')[-1],
             )
-        outstr += self.tables.__repr__()
+        outstr += self.scorers.__repr__()
         return outstr
 
     def __init__(self, tag=None, **kwargs):
-        self.tables = deepcopy(kwargs)
-        self.resource_vars = list(set(self.tables.keys()) &
+        self.scorers = deepcopy(kwargs)
+        self.resource_vars = list(set(self.scorers.keys()) &
                                   {'dist', 'resource', 'depth'})
         self.tag = tag
 
     def __copy__(self, model_class=None, tag=None, **kwargs):
         if model_class is None:
             model_class = self.__class__
-        tables = deepcopy(self.tables)
-        tables.update(**kwargs)
-        return model_class(tag=tag, **tables)
+        scorers = deepcopy(self.scorers)
+        scorers.update(**kwargs)
+        return model_class(tag=tag, **scorers)
 
     copy = __copy__
 
     def _norm_weights(self, subset=None):
         wnorm = 0.
-        nms = self.tables.keys()
+        nms = self.scorers.keys()
         if subset is not None:
             nms = [nm for nm in nms if nm in subset]
         for nm in nms:
-            wnorm += self.tables[nm].weight
+            wnorm += self.scorers[nm].weight
         out = {}
         for nm in nms:
-            out[nm] = self.tables[nm].weight / wnorm
+            out[nm] = self.scorers[nm].weight / wnorm
         return out
 
     def _calc_total(self, data, weights):
@@ -49,12 +49,12 @@ class SumModel(object):
 
     def _score_it(self, data, names=None):
         """
-        Score the `data` according to the tables in this model.
+        Score the `data` according to the scorers in this model.
         """
         weights = self._norm_weights(names)
         for nm in weights:
             # Score the resource data:
-            data['score_' + nm] = self.tables[nm](data[nm])
+            data['score_' + nm] = self.scorers[nm](data[nm])
         data['score_total'] = self._calc_total(data, weights)
         return data
 
