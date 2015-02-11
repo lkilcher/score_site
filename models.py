@@ -78,7 +78,7 @@ class SumModel(object):
                     val = np.NaN
                 else:
                     val = out.resdata[nm][idx]
-                out.data[nm][site] = val
+                out.data.loc[site, nm] = val
 
     def __call__(self, data):
         """
