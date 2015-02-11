@@ -48,10 +48,11 @@ class HotSpot(object):
         self.resdata = resdata
         self.model = model
 
-    def to_kml(self, buf, mapdata = 'resource',
+    def to_kml(self, buf,
+               mapdata='resource',
                cmap=default_cmap,
                clims=[None, None]):
-        if buf.__class__ is simplekml.Kml:
+        if buf.__class__ in [simplekml.Kml, simplekml.Folder]:
             kml = buf
             fl = False
         else:
@@ -133,10 +134,37 @@ class HotSpotData(object):
         else:
             return self.__class__(dtmp, self.resdata, self.model)
 
-    ## def to_kml(self, buf, mapdata='resource'):
-
-    ##     for idx in xrange(self.data.shape[0]):
-    ##         dnow = 
+    def to_kml(self, buf,
+               mapdata='resource',
+               cmap=default_cmap,
+               clims=[None, None]):
+        if buf.__class__ is simplekml.Kml:
+            kml = buf
+            fl = False
+        else:
+            kml = simplekml.Kml()
+            fl = True
+        # Handle the default clims:
+        if clims is None:
+            clims = [None, None]
+        clims = list(clims)
+        if clims[0] is None:
+            clims[0] = self.resdata[mapdata].min()
+        if clims[1] is None:
+            clims[1] = self.resdata[mapdata].max()
+        # Write the data for each location:
+        for idx in xrange(self.data.shape[0]):
+            dnow = self[idx]
+            fol = kml.newfolder(name=dnow.name)
+            dnow.to_kml(fol,
+                        mapdata=mapdata,
+                        cmap=cmap,
+                        clims=clims)
+            if idx == 0:
+                vw = fol.allfeatures[0].lookat
+        kml.document.lookat = vw
+        if fl:
+            kml.save(buf)
 
     def to_excel(self, buf):
         """
@@ -157,7 +185,8 @@ class HotSpotData(object):
         if basestring in buf.__class__.__mro__:
             if not (buf.endswith('.xlsx') or buf.endswith('.xls')):
                 buf += '.xlsx'
-            buf = pd.io.excel.ExcelWriter(buf, 'openpyxl')
+            buf = pd.io.excel.ExcelWriter(buf)
+            #buf = pd.io.excel.ExcelWriter(buf, 'openpyxl')
         self.data.to_excel(buf, sheet_name='SiteData')
         self.resdata.to_excel(buf, sheet_name='ResourceData', index=False)
         buf.close()
