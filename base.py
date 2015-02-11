@@ -241,7 +241,7 @@ class HotSpotData(object):
                 columns=['energy_cost', 'load', 'dist',
                          'resource', 'depth', 'shipping', 'score_total'],
                 colors=default_cmap_table,
-                hline_widths=None,
+                hline_widths=[1],
                 include_legend=True,
                 weights_in_head=True,
                 ):
