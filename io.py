@@ -6,7 +6,11 @@ from shipping import calc_shipping
 def load_excel(fname):
     data = pd.read_excel(fname, 'SiteData')
     resdata = pd.read_excel(fname, 'ResourceData')
-    return HotSpotData(data, resdata)
+    try:
+        units = pd.read_excel(fname, 'Units',).iloc[:, 0].to_dict()
+    except:
+        units = {}
+    return HotSpotData(data, resdata, units=units)
 
 
 if __name__ == '__main__':

@@ -16,7 +16,6 @@ default_cmap = plt.get_cmap('Reds')
 maxscore = 10.0
 
 
-
 def _write_kmz_legend(buf, title, values, cmap, clims):
     if values is False:
         return
@@ -63,7 +62,7 @@ def _write_kmz_legend(buf, title, values, cmap, clims):
         hndls.append(ax.plot(np.NaN, np.NaN, 'o',
                              mfc=cmap(cval), mec='none', ms=20,
                              label=lbls[-1])[0])
-    lgnd = fig.legend(hndls, lbls, title=title.title(),
+    lgnd = fig.legend(hndls, lbls, title=title,
                       loc='upper left', numpoints=1)
     lgnd.get_frame().set_facecolor((1., 1., 1., .8))
     lgnd.get_frame().set_edgecolor('none')
@@ -107,7 +106,18 @@ class HotSpot(object):
 
     coe = energy_cost
 
-    def __init__(self, data, resdata, model=None):
+    def _strip_units_from_header(self, data):
+        out = {}
+        for idx, col in enumerate(data.columns):
+            if col.endswith(']'):
+                (nm, unit) = col.rsplit('[', 1)
+                nm = nm.rstrip()
+                data.columns[idx] = nm
+                out[nm] = unit.rstrip(']')
+        return out
+
+    def __init__(self, data, resdata, model=None, units={}):
+        self.units = units
         self.data = data
         self.resdata = resdata
         self.model = model
@@ -167,8 +177,12 @@ class HotSpot(object):
         if clims[1] is None:
             clims[1] = self.resdata[mapdata].max()
 
+        unt = ''
+        if mapdata in self.units:
+            unt = ' [' + self.units[mapdata] + ']'
+
         _write_kmz_legend(kml, values=legend_vals,
-                          title=mapdata.rstrip('_total'),
+                          title=mapdata.rstrip('_total').title() + unt,
                           cmap=cmap, clims=clims)
 
         fol = kml.newfolder(name=mapdata)
@@ -205,10 +219,11 @@ class HotSpotData(object):
     site-scoring, ranking and other analysis operations.
     """
 
-    def __init__(self, data, resdata, model=None):
+    def __init__(self, data, resdata, model=None, units={}):
         self.data = data
         self.resdata = resdata
         self.model = model
+        self.units = units
 
     def __getitem__(self, val):
         try:
@@ -220,9 +235,14 @@ class HotSpotData(object):
         if dtmp.ndim == 1:
             return HotSpot(dtmp,
                            self.resdata.loc[self.resdata.name == dtmp.name],
-                           model=self.model,)
+                           model=self.model,
+                           units=self.units.copy(),
+                           )
         else:
-            return self.__class__(dtmp, self.resdata, self.model)
+            return self.__class__(dtmp,
+                                  self.resdata,
+                                  self.model,
+                                  units=self.units.copy())
 
     def to_kmz(self, buf,
                mapdata='resource',
@@ -244,9 +264,12 @@ class HotSpotData(object):
             clims[0] = self.resdata[mapdata].min()
         if clims[1] is None:
             clims[1] = self.resdata[mapdata].max()
+        unt = ''
+        if mapdata in self.units:
+            unt = ' [' + self.units[mapdata] + ']'
         ## Write the data for each location:
         _write_kmz_legend(kml, cmap=cmap,
-                          title=mapdata.rstrip('_total'),
+                          title=mapdata.rstrip('_total').title() + unt,
                           values=legend_vals, clims=clims)
         for idx in xrange(self.data.shape[0]):
             dnow = self[idx]
@@ -267,7 +290,6 @@ class HotSpotData(object):
                 remove('_legend.png')
             except:
                 pass
-
 
     def to_excel(self, buf):
         """
@@ -292,6 +314,9 @@ class HotSpotData(object):
             #buf = pd.io.excel.ExcelWriter(buf, 'openpyxl')
         self.data.to_excel(buf, sheet_name='SiteData')
         self.resdata.to_excel(buf, sheet_name='ResourceData', index=False)
+        units = pd.Series(self.units)
+        units = pd.DataFrame(units, index=units.index, columns=['units'])
+        units.to_excel(buf, sheet_name='Units',)
         buf.close()
 
     def _write_table_legend(self, values=range(10, -1, -2),
@@ -413,7 +438,7 @@ class HotSpotData(object):
         return self.data.__repr__()
 
     def __copy__(self):
-        return HotSpotData(self.data.copy(), self.resdata.copy())
+        return HotSpotData(self.data.copy(), self.resdata.copy(), self.model, units=self.units.copy())
 
     copy = __copy__
 
