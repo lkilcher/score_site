@@ -4,11 +4,14 @@ from matplotlib import pyplot as plt
 import matplotlib.colors as mplc
 import simplekml
 
-default_cmap_table = plt.get_cmap('YlGn')(np.linspace(0.03, 0.6, 5))[:, :3] * 255
+
+sub_cmap = lambda cmap, low, high: lambda val: cmap((high - low) * val + low)
+
+default_cmap_table = sub_cmap(plt.get_cmap('YlGn', ), 0.1, 0.7)
 #default_cmap = plt.get_cmap('Reds')(np.linspace(0.00, 1, 5))[:, :3] * 255
 default_cmap = plt.get_cmap('Reds')
 
-maxscore = 10.
+maxscore = 10.0
 
 
 class HotSpot(object):
@@ -51,7 +54,9 @@ class HotSpot(object):
     def to_kml(self, buf,
                mapdata='resource',
                cmap=default_cmap,
-               clims=[None, None]):
+               clims=[None, None],
+               legend=True,
+               ):
         if buf.__class__ in [simplekml.Kml, simplekml.Folder]:
             kml = buf
             fl = False
@@ -89,6 +94,10 @@ class HotSpot(object):
         if clims[1] is None:
             clims[1] = self.resdata[mapdata].max()
 
+        ## if legend:
+        ##     _write_kml_legend(kml.document, values=legend,
+        ##                       cmap=cmap, clims=clims)
+
         for idx, d in self.resdata.iterrows():
             pt = kml.newpoint(name='', coords=[(d.lon, d.lat)])
             pt.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/paddle/wht-blank-lv.png'
@@ -104,6 +113,7 @@ class HotSpot(object):
                                '%0.2f' % d[dval],
                                dval)
             pt.extendeddata = ed
+
         if fl:
             kml.save(buf)
 
@@ -137,7 +147,9 @@ class HotSpotData(object):
     def to_kml(self, buf,
                mapdata='resource',
                cmap=default_cmap,
-               clims=[None, None]):
+               clims=[None, None],
+               legend=True,
+               ):
         if buf.__class__ is simplekml.Kml:
             kml = buf
             fl = False
@@ -153,13 +165,16 @@ class HotSpotData(object):
         if clims[1] is None:
             clims[1] = self.resdata[mapdata].max()
         # Write the data for each location:
+        ## _write_kml_legend(kml.document, cmap=cmap,
+        ##                   values=legend, clims=clims)
         for idx in xrange(self.data.shape[0]):
             dnow = self[idx]
             fol = kml.newfolder(name=dnow.name)
             dnow.to_kml(fol,
                         mapdata=mapdata,
                         cmap=cmap,
-                        clims=clims)
+                        clims=clims,
+                        legend=False)
             if idx == 0:
                 vw = fol.allfeatures[0].lookat
         kml.document.lookat = vw
@@ -191,16 +206,13 @@ class HotSpotData(object):
         self.resdata.to_excel(buf, sheet_name='ResourceData', index=False)
         buf.close()
 
-    def _write_table_legend(self, buf='default_legend.html',
-                            colors=default_cmap_table,
+    def _write_table_legend(self, values=range(10, -1, -2),
+                            buf='default_legend.html',
+                            cmap=default_cmap_table,
                             ):
-    ## def _write_table_legend(self, buf='default_legend.html',
-    ##                         cmap=default_cmap_table,
-    ##                         vals=[0, 2, 4, 6, 8, 10],
-    ##                         ):
         """
-        Write the table legend for the colormap specified by `colors`
-        to `buf`. `colors` should be the same colormap used to write
+        Write the table legend for the colormap specified by `cmap`
+        to `buf`. `cmap` should be the same colormap used to write
         an html table using :meth:`to_html`.
 
         Parameters
@@ -209,25 +221,15 @@ class HotSpotData(object):
         buf : string
 
         """
-        ncolor = colors.shape[0]
-        if (maxscore / ncolor % 1) == 0:
-            frmt = '%d'
-        else:
-            frmt = '%0.1f'
-        vls = np.linspace(maxscore / ncolor, 10, ncolor)
-        dat = np.array(['(' + frmt + ' - ' + frmt + ']'] * ncolor, dtype='S10')
-        for idx, vl in enumerate(vls):
-            dat[idx] = dat[idx] % (vl - maxscore / ncolor, vl)
-        dat[0] = dat[0].replace('(', '[')
-        dat = dat[::-1]
+        ncolor = len(values)
+        dat = np.array(values)
         tbl = pd.DataFrame({'Score': dat}).to_html(index=False) + '\n'
         tbl = tbl.replace(r'border="1" ',
                           'style="border-collapse: collapse; text-align:center;"')
         tbl = tbl.replace('<td', '<td style="%s"')
         out = np.empty(ncolor, dtype='O')
         for idx in xrange(ncolor):
-            out[idx] = 'background-color:rgb(%d, %d, %d)' % tuple(colors[idx])
-        out = out[::-1]
+            out[idx] = 'background-color:rgb(%d, %d, %d)' % tuple(np.array(cmap(values[idx] / maxscore)[:3]) * 255)
         tbl = tbl % tuple(out)
         if basestring in buf.__class__.__mro__:
             if not (buf.endswith('.htm') | buf.endswith('.html')):
@@ -240,7 +242,7 @@ class HotSpotData(object):
     def to_html(self, buf,
                 columns=['energy_cost', 'load', 'dist',
                          'resource', 'depth', 'shipping', 'score_total'],
-                colors=default_cmap_table,
+                cmap=default_cmap_table,
                 hline_widths=[1],
                 include_legend=True,
                 weights_in_head=True,
@@ -276,9 +278,7 @@ class HotSpotData(object):
                 else:
                     col_score = 'score_' + col
                 if col_score in self.data:
-                    ind_clr = int((self.data[col_score][irow]) / maxscore * colors.shape[0])
-                    ind_clr = min(ind_clr, colors.shape[0] - 1)
-                    form[irow, icol] += 'background-color:rgb(%d, %d, %d); ' % tuple(colors[ind_clr])
+                    form[irow, icol] += 'background-color:rgb(%d, %d, %d); ' % tuple(np.array(cmap(self.data[col_score][irow] / maxscore)[:3]) * 255)
         tbl = tbl.format(form=form)
         if basestring in buf.__class__.__mro__:
             if not (buf.endswith('.htm') | buf.endswith('.html')):
@@ -286,7 +286,7 @@ class HotSpotData(object):
             with open(buf, 'w') as fl:
                 fl.write(tbl)
                 if include_legend:
-                    self._write_table_legend(fl, colors=colors)
+                    self._write_table_legend(buf=fl, cmap=cmap)
         else:
             fl.write(tbl)
             if include_legend:
