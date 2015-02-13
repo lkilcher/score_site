@@ -3,7 +3,9 @@ import numpy as np
 from matplotlib import pyplot as plt
 import matplotlib.colors as mplc
 import simplekml
+from os import remove, path
 
+package_root = path.realpath(__file__).replace("\\", "/").rsplit('/', 1)[0] + '/'
 
 sub_cmap = lambda cmap, low, high: lambda val: cmap((high - low) * val + low)
 
@@ -12,6 +14,65 @@ default_cmap_table = sub_cmap(plt.get_cmap('YlGn', ), 0.1, 0.7)
 default_cmap = plt.get_cmap('Reds')
 
 maxscore = 10.0
+
+
+
+def _write_kmz_legend(buf, title, values, cmap, clims):
+    if values is False:
+        return
+    if values is None:
+        values = np.arange(clims[1],
+                           clims[0] - (clims[1] - clims[0]) * 0.1,
+                           -(clims[1] - clims[0]) / 5.)
+    if abs(values[-1] < 0.01):
+        values[-1] = 0.0
+
+    ol = buf.document.newscreenoverlay(
+        name='Legend',
+        overlayxy=simplekml.OverlayXY(x=0,
+                                      y=1,
+                                      xunits='fraction',
+                                      yunits='fraction'),
+        screenxy=simplekml.ScreenXY(x=0, y=1,
+                                    xunits='fraction',
+                                    yunits='fraction'),
+        rotationxy=None,
+        rotation=None,)
+    ol.size.x = 0
+    ol.size.y = 0
+    ol.size.xunits = simplekml.Units.fraction
+    ol.size.yunits = simplekml.Units.fraction
+
+    inter = plt.isinteractive()
+    plt.interactive(False)
+
+    fignum = np.random.randint(100000, 200000)
+
+    fig = plt.figure(fignum, figsize=(3, 4))
+    fig.clf()
+    ax = plt.axes([0, 0, 1, 1])
+    #ax.set_visible(False)
+    hndls = []
+    lbls = []
+    for val in values:
+        if val % 1 == 0:
+            lbls.append('%d' % val)
+        else:
+            lbls.append('%0.1f' % val)
+        cval = (np.float(val) - clims[0]) / (clims[1] - clims[0])
+        hndls.append(ax.plot(np.NaN, np.NaN, 'o',
+                             mfc=cmap(cval), mec='none', ms=20,
+                             label=lbls[-1])[0])
+    lgnd = fig.legend(hndls, lbls, title=title.title(),
+                      loc='upper left', numpoints=1)
+    lgnd.get_frame().set_facecolor((1., 1., 1., .8))
+    lgnd.get_frame().set_edgecolor('none')
+    ax.set_visible(False)
+    fig.savefig('_legend.png', transparent=True, dpi=130)
+    buf.addfile('_legend.png')
+    ol.icon.href = '_legend.png'
+    plt.close(fig)
+    plt.interactive(inter)
 
 
 class HotSpot(object):
@@ -51,12 +112,24 @@ class HotSpot(object):
         self.resdata = resdata
         self.model = model
 
-    def to_kml(self, buf,
+    def to_kmz(self, buf,
                mapdata='resource',
                cmap=default_cmap,
                clims=[None, None],
-               legend=True,
+               legend_vals=None,
                ):
+        """
+        Write a google earth '.kmz' file of the data.
+
+        Parameters
+        ----------
+        buf  : string
+               The filename, or simplekml.Kml object to write data to.
+        mapdata : string
+                  The column of `resdata` to display spatially.
+        cmap : colormap object (
+        
+        """
         if buf.__class__ in [simplekml.Kml, simplekml.Folder]:
             kml = buf
             fl = False
@@ -94,13 +167,15 @@ class HotSpot(object):
         if clims[1] is None:
             clims[1] = self.resdata[mapdata].max()
 
-        ## if legend:
-        ##     _write_kml_legend(kml.document, values=legend,
-        ##                       cmap=cmap, clims=clims)
+        _write_kmz_legend(kml, values=legend_vals,
+                          title=mapdata.rstrip('_total'),
+                          cmap=cmap, clims=clims)
+
+        fol = kml.newfolder(name=mapdata)
 
         for idx, d in self.resdata.iterrows():
-            pt = kml.newpoint(name='', coords=[(d.lon, d.lat)])
-            pt.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/paddle/wht-blank-lv.png'
+            pt = fol.newpoint(name='', coords=[(d.lon, d.lat)])
+            pt.style.iconstyle.icon.href = 'files/icon_circle.png'
             c = mplc.rgb2hex(cmap(float(
                 (d[mapdata] - clims[0]) / (clims[1] - clims[0])
                 )))
@@ -115,7 +190,12 @@ class HotSpot(object):
             pt.extendeddata = ed
 
         if fl:
-            kml.save(buf)
+            kml.addfile(package_root + '_img/icon_circle.png')
+            kml.savekmz(buf)
+            try:
+                remove('_legend.png')
+            except:
+                pass
 
 
 class HotSpotData(object):
@@ -144,11 +224,11 @@ class HotSpotData(object):
         else:
             return self.__class__(dtmp, self.resdata, self.model)
 
-    def to_kml(self, buf,
+    def to_kmz(self, buf,
                mapdata='resource',
                cmap=default_cmap,
                clims=[None, None],
-               legend=True,
+               legend_vals=None,
                ):
         if buf.__class__ is simplekml.Kml:
             kml = buf
@@ -164,22 +244,30 @@ class HotSpotData(object):
             clims[0] = self.resdata[mapdata].min()
         if clims[1] is None:
             clims[1] = self.resdata[mapdata].max()
-        # Write the data for each location:
-        ## _write_kml_legend(kml.document, cmap=cmap,
-        ##                   values=legend, clims=clims)
+        ## Write the data for each location:
+        _write_kmz_legend(kml, cmap=cmap,
+                          title=mapdata.rstrip('_total'),
+                          values=legend_vals, clims=clims)
         for idx in xrange(self.data.shape[0]):
             dnow = self[idx]
             fol = kml.newfolder(name=dnow.name)
-            dnow.to_kml(fol,
+            dnow.to_kmz(fol,
                         mapdata=mapdata,
                         cmap=cmap,
                         clims=clims,
-                        legend=False)
+                        legend_vals=False)
             if idx == 0:
                 vw = fol.allfeatures[0].lookat
         kml.document.lookat = vw
         if fl:
-            kml.save(buf)
+            kml.addfile(package_root + '_img/icon_circle.png')
+            kml.savekmz(buf)
+            try:
+                pass
+                remove('_legend.png')
+            except:
+                pass
+
 
     def to_excel(self, buf):
         """
