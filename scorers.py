@@ -1,3 +1,9 @@
+"""
+This package contains the scorer classes. Scorers perform scoring of a
+single data column of a :class:`.HotSpotCollection` data object. They
+are used by incorporated them into one of the scoring models in the
+:mod:`.models` module.
+"""
 import numpy as np
 import pandas as pd
 
@@ -9,10 +15,8 @@ class Linear(object):
 
     Parameters
     ----------
-
     values : array_like
              The sequence of values.
-
     scores : array_like
              The sequence of scores (default: [0, 10])
 
@@ -63,10 +67,8 @@ class Log(Linear):
 
     Parameters
     ----------
-
     values : array_like
              The sequence of values in `linear` space.
-
     scores : array_like
              The sequence of scores (default: [0, 10])
 
@@ -76,6 +78,7 @@ class Log(Linear):
     The length of `values` and `scores` must be the same.
 
     `values` must either be monotonically increasing or decreasing.
+
     """
 
     def __init__(self, values, scores=[0, 10], weight=1, base=10):
@@ -116,7 +119,6 @@ class Table(object):
 
     Parameters
     ----------
-
     table  : array_like
              The format of the tables is:
                   [minval1, maxval1, score1]
@@ -125,7 +127,6 @@ class Table(object):
                   [minvalN, maxvalN, scoreN]
              Values in the range minval1 to maxval1 are given score1,
              and so on.
-
     weight : float
              The weight to give this scorers relative to others.
     """
@@ -148,8 +149,7 @@ class Table(object):
 
     def __call__(self, data):
         """
-        This function uses the score table (or array) `self.table` to calculate
-        the scores for the data points in `data`.
+        Score the data according to this table scorer.
         """
 
         # This if statement 'block' makes sure `data` is in the right

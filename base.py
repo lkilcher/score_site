@@ -1,3 +1,13 @@
+"""
+This module defines the base object types for score_site:
+
+- HotSpotData: This is the primary data type of the score_site
+  package. It contains the resource and site data for a collection of
+  sites.
+
+- HotSpot : This is a site and data class for a single 'hot spot'.
+
+"""
 import pandas as pd
 import numpy as np
 from matplotlib import pyplot as plt
@@ -9,9 +19,10 @@ package_root = path.realpath(__file__).replace("\\", "/").rsplit('/', 1)[0] + '/
 
 sub_cmap = lambda cmap, low, high: lambda val: cmap((high - low) * val + low)
 
-default_cmap_table = sub_cmap(plt.get_cmap('YlGn', ), 0.1, 0.7)
-#default_cmap = plt.get_cmap('Reds')(np.linspace(0.00, 1, 5))[:, :3] * 255
-default_cmap = plt.get_cmap('Reds')
+cmaps = {'green': sub_cmap(plt.get_cmap('YlGn', ), 0.1, 0.7),
+         'red': plt.get_cmap('Reds'),
+         }
+
 
 maxscore = 10.0
 
@@ -76,6 +87,22 @@ def _write_kmz_legend(buf, title, values, cmap, clims):
 
 class HotSpot(object):
 
+    """
+    A single site 'hot spot' class.
+
+    Parameters
+    ----------
+    data : :class:`pandas.DataFrame`
+           The site data for the site.
+    resdata : :class:`pandas.DataFrame`
+              The resource data for the site.
+    model : A :mod:`scorers` model, or None (default).
+            A scoring model used to score the data.
+    units : :class:`dict`
+            A dictionary of the units for the site and resource data.
+    """
+
+    # These 'properties' define shortcuts to the site data.
     @property
     def name(self,):
         return self.data.name
@@ -106,16 +133,6 @@ class HotSpot(object):
 
     coe = energy_cost
 
-    def _strip_units_from_header(self, data):
-        out = {}
-        for idx, col in enumerate(data.columns):
-            if col.endswith(']'):
-                (nm, unit) = col.rsplit('[', 1)
-                nm = nm.rstrip()
-                data.columns[idx] = nm
-                out[nm] = unit.rstrip(']')
-        return out
-
     def __init__(self, data, resdata, model=None, units={}):
         self.units = units
         self.data = data
@@ -124,21 +141,34 @@ class HotSpot(object):
 
     def to_kmz(self, buf,
                mapdata='resource',
-               cmap=default_cmap,
+               cmap=cmaps['red'],
                clims=[None, None],
                legend_vals=None,
                ):
         """
-        Write a google earth '.kmz' file of the data.
+        Write a google earth '.kmz' file of the data. This method
+        writes spatial data to a .kmz file as colored dots. It also
+        writes meta-data to the dots, and to the sites.
 
         Parameters
         ----------
         buf  : string
                The filename, or simplekml.Kml object to write data to.
         mapdata : string
-                  The column of `resdata` to display spatially.
-        cmap : colormap object (
-        
+                  The column of `resdata` to map spatially.
+        cmap : <matplotlib.colors.ColorMap>
+               The colormap for the spatilly mapped data.
+        clims : iterable(2)
+                Two element object that indicates the [min, max]
+                values for the colormap. By default these values
+                are chosen to fill the data.
+        legend_vals : iterable
+                      The list of values to display in the legend. By
+                      default (legend_vals=None) the legend will have
+                      six values between clims[0] and
+                      clims[1]. legend_vals=False will not write a
+                      legend.
+
         """
         if buf.__class__ in [simplekml.Kml, simplekml.Folder]:
             kml = buf
@@ -149,7 +179,8 @@ class HotSpot(object):
         pt = kml.newpoint(name=self.data.name, coords=[(self.lon, self.lat)])
         pt.lookat = simplekml.LookAt(
             gxaltitudemode=simplekml.GxAltitudeMode.relativetoseafloor,
-            latitude=self.lat, longitude=self.lon, range=6.4E4, heading=0, tilt=0)
+            latitude=self.lat, longitude=self.lon, range=6.4E4,
+            heading=0, tilt=0)
         pt.iconstyle.hotspot.x = 0.5
         pt.iconstyle.hotspot.xunits = 'fraction'
         pt.iconstyle.hotspot.y = 0.0
@@ -192,11 +223,12 @@ class HotSpot(object):
             pt.style.iconstyle.icon.href = 'files/icon_circle.png'
             c = mplc.rgb2hex(cmap(float(
                 (d[mapdata] - clims[0]) / (clims[1] - clims[0])
-                )))
+            )))
             c = 'FF' + c[5:] + c[3:5] + c[1:3]
             pt.style.iconstyle.color = c
             ed = simplekml.ExtendedData()
-            for dval in ['lon', 'lat', 'depth', 'resource', 'dist', 'score_total']:
+            for dval in ['lon', 'lat', 'depth',
+                         'resource', 'dist', 'score_total']:
                 if dval in d:
                     ed.newdata(dval + '_val',
                                '%0.2f' % d[dval],
@@ -212,11 +244,36 @@ class HotSpot(object):
                 pass
 
 
-class HotSpotData(object):
+class HotSpotCollection(object):
 
     """
-    A data object for holding site and resource data for performing
+    A data object for holding site data (:attr:`data`) and resource
+    data (:attr:`resdata`) for a collection of sites, for performing
     site-scoring, ranking and other analysis operations.
+
+    1) Site data is a single point for each site with scorable
+    'attributes' (e.g. Yakutat, Alaska has a 'load' and a 'cost of
+    energy'.)
+
+    2) Resource data is spatially distributed information (spatial
+    attributes) associated with a site (e.g. wave energy density and
+    water depth).
+
+
+    Parameters
+    ----------
+    data : `pandas.DataFrame`
+           DataFrame containing the 'site' (market,lat,lon) data.
+    resdata : `pandas.DataFrame`
+              DataFrame containing the resource (depth, resource, lat,
+              lon) data.
+    model : score_site.scorers.Model
+            The scoring model that has been applied to the data.
+    units : dict
+            A dict of strings containing the units of the fields
+            (columns) in `data` and `resdata`.
+
+
     """
 
     def __init__(self, data, resdata, model=None, units={}):
@@ -246,10 +303,35 @@ class HotSpotData(object):
 
     def to_kmz(self, buf,
                mapdata='resource',
-               cmap=default_cmap,
+               cmap=cmaps['red'],
                clims=[None, None],
                legend_vals=None,
                ):
+        """
+        Write a google earth '.kmz' file of the data. This method
+        writes spatial data to a .kmz file as colored dots. It also
+        writes meta-data to the dots, and to the sites.
+
+        Parameters
+        ----------
+        buf  : string
+               The filename, or simplekml.Kml object to write data to.
+        mapdata : string
+                  The column of `resdata` to map spatially.
+        cmap : <matplotlib.colors.ColorMap>
+               The colormap for the spatilly mapped data.
+        clims : iterable(2)
+                Two element object that indicates the [min, max]
+                values for the colormap. By default these values
+                are chosen to fill the data.
+        legend_vals : iterable
+                      The list of values to display in the legend. By
+                      default (legend_vals=None) the legend will have
+                      six values between clims[0] and
+                      clims[1]. legend_vals=False will not write a
+                      legend.
+
+        """
         if buf.__class__ is simplekml.Kml:
             kml = buf
             fl = False
@@ -321,7 +403,7 @@ class HotSpotData(object):
 
     def _write_table_legend(self, values=range(10, -1, -2),
                             buf='default_legend.html',
-                            cmap=default_cmap_table,
+                            cmap=cmaps['green'],
                             ):
         """
         Write the table legend for the colormap specified by `cmap`
@@ -342,7 +424,8 @@ class HotSpotData(object):
         tbl = tbl.replace('<td', '<td style="%s"')
         out = np.empty(ncolor, dtype='O')
         for idx in xrange(ncolor):
-            out[idx] = 'background-color:rgb(%d, %d, %d)' % tuple(np.array(cmap(values[idx] / maxscore)[:3]) * 255)
+            out[idx] = ('background-color:rgb(%d, %d, %d)' %
+                        tuple(np.array(cmap(values[idx] / maxscore)[:3]) * 255))
         tbl = tbl % tuple(out)
         if basestring in buf.__class__.__mro__:
             if not (buf.endswith('.htm') | buf.endswith('.html')):
@@ -355,11 +438,15 @@ class HotSpotData(object):
     def to_html(self, buf,
                 columns=['energy_cost', 'load', 'dist',
                          'resource', 'depth', 'shipping', 'score_total'],
-                cmap=default_cmap_table,
+                cmap=cmaps['green'],
                 hline_widths=[1],
                 include_legend=True,
                 weights_in_head=True,
                 ):
+        """
+        Write the data in this HotSpotto an html table.
+        """
+        
         dat = self.data[columns]
         tbl = dat.to_html(float_format=lambda s: ('%0.1f' % s)) + '\n'
         tbl = tbl.replace(r'border="1" ', 'style="border-collapse: collapse;"')
@@ -391,7 +478,8 @@ class HotSpotData(object):
                 else:
                     col_score = 'score_' + col
                 if col_score in self.data:
-                    form[irow, icol] += 'background-color:rgb(%d, %d, %d); ' % tuple(np.array(cmap(self.data[col_score][irow] / maxscore)[:3]) * 255)
+                    form[irow, icol] += ('background-color:rgb(%d, %d, %d); ' %
+                                         tuple(np.array(cmap(self.data[col_score][irow] / maxscore)[:3]) * 255))
         tbl = tbl.format(form=form)
         if basestring in buf.__class__.__mro__:
             if not (buf.endswith('.htm') | buf.endswith('.html')):
@@ -438,7 +526,10 @@ class HotSpotData(object):
         return self.data.__repr__()
 
     def __copy__(self):
-        return HotSpotData(self.data.copy(), self.resdata.copy(), self.model, units=self.units.copy())
+        return HotSpotCollection(self.data.copy(),
+                                 self.resdata.copy(),
+                                 self.model,
+                                 units=self.units.copy())
 
     copy = __copy__
 

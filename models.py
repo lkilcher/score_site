@@ -1,9 +1,57 @@
+"""
+This package contains the scoring models. These define the method for
+aggregating scores. A single scoring 'model' is initialized with a set
+of several 'scorer' objects from the :mod:`.scorers` module, e.g.::
+
+    a_scoring_model = SumModel(dist=scorers.Linear([0, 30], score=[0, 10]),
+                               resource=scorers.Linear([10, 30], score=[0, 10]) )
+
+When a scoring model is called to operate on a
+:class:`.HotSpotCollection`, e.g.::
+
+    results = a_scoring_model(a_HotSpotCollection_instance)
+
+it calls each scorer it contains (the individual scores are stored in
+`score_<name>` where `<name>` is the field being scored), and computes
+an aggregate score (and stores it in 'score_total').
+
+"""
 from copy import deepcopy
 import pandas as pd
 import numpy as np
 
 
 class SumModel(object):
+    """
+    A 'sum-method' scoring model.
+
+    Parameters
+    ----------
+    tag : string or None
+          A string to attach to this scoring model.
+    **kwargs : key-value pairs
+               Keys must match the column of the data you wish to
+               score. The values are the :mod:`.scorers` to apply to
+               that column.
+
+    Notes
+    -----
+
+    The sum-method aggregates scores according to:
+
+    .. math::
+
+        S_{tot} = \sum_i w_i \cdot S_i
+
+    where :math:`S_i` and `w_i` are the scores and weights for each of
+    the data columns.
+
+
+    This model automatically normalizes the weights so that
+    :math:`\sum_i w_i = 1`. This means that :math:`S_{tot}` will be
+    between 0 and 10.
+
+    """
 
     def __repr__(self,):
         outstr = "'%s' site scoring %s:\n" % (
@@ -82,7 +130,7 @@ class SumModel(object):
 
     def __call__(self, data):
         """
-        Score the `data` according to this model.
+        Score `data` according to this model.
         """
         out = data.copy()
         out.model = self
@@ -96,6 +144,35 @@ class SumModel(object):
 
 
 class ProdModel(SumModel):
+    """
+    A 'product-method' scoring model.
+
+    Parameters
+    ----------
+    tag : string or None
+          A string to attach to this scoring model.
+    **kwargs : key-value pairs
+               Keys must match the column of the data you wish to
+               score. The values are the :mod:`.scorers` to apply to
+               that column.
+
+    Notes
+    -----
+
+    The product-method aggregates scores according to:
+
+    .. math::
+
+        S_{tot} = \Pi_i S_i^w_i
+
+    where :math:`S_i` and `w_i` are the scores and weights for each of
+    the data columns.
+
+    This model automatically normalizes the weights so that
+    :math:`\sum_i w_i = 1`. This means that :math:`S_{tot}` will be
+    between 0 and 10.
+
+    """
 
     def _calc_total(self, data, weights):
         score = pd.Series(np.ones(len(data.index)),
@@ -116,6 +193,9 @@ class MultiModel(object):
         self.models = args
 
     def __call__(self, data):
+        """
+        Score `data` according to this MultiModel.
+        """
         tag = pd.Series(np.empty(len(data.data.index), dtype='S20'),
                         index=data.data.index, )
         restag = pd.Series(np.empty(len(data.resdata.index), dtype='S20'),

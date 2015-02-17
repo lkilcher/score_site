@@ -1,36 +1,41 @@
-from base import HotSpotData
+"""
+This module defines the function for reading data into
+:class:`base.HotSpotCollections`.
+"""
+from base import HotSpotCollection
 import pandas as pd
-from shipping import calc_shipping
 
 
 def load_excel(fname):
-    data = pd.read_excel(fname, 'SiteData')
+    """
+    Load data from the Excel file 'fname'. This file must contain
+    'SiteData' and 'ResourceData' sheets. It can also contain a
+    'Units' sheet.
+
+    The 'SiteData' sheet should have sites as rows (site name must be
+    the first column and these values must be unique). The first row
+    should have headers that define the column names (e.g. 'lat',
+    'lon', etc.).
+
+    The 'ResourceData' sheet should have a 'name' column; the values
+    in this column should match one of the 'name' values in the
+    'SiteData sheet. This sheet can have multiple rows with the same
+    value in the 'name' column.  This allows a single entry in the
+    'SiteData' sheet to have multiple 'ResourceData' points.  The
+    first row must have the headers that define the column names.
+
+    The optional 'Units' sheet is used to specify the units of the
+    columns in the previous two sheets. It should have only two
+    columns: A) the first indicates the variable name, which must
+    match the column header in the other sheet(s) (e.g. 'load' or
+    'dist'), and B) the 'unit' string (e.g. 'kWh' or 'km').
+
+    """
+
+    data = pd.read_excel(fname, 'SiteData', index_col=0)
     resdata = pd.read_excel(fname, 'ResourceData')
     try:
         units = pd.read_excel(fname, 'Units',).iloc[:, 0].to_dict()
     except:
         units = {}
-    return HotSpotData(data, resdata, units=units)
-
-
-if __name__ == '__main__':
-
-    dat0 = pd.read_excel(
-        'HotspotSites_Resources_edited.xlsx', 'HotspotSites', index_col='name')
-    dat = dat0.iloc[:, [0, 1, 2, 3, 5]]
-    dat.columns = ['lat', 'lon', 'load', 'energy_cost', 'region']
-    dat.index.name = None
-
-    dat['shipping'] = calc_shipping(dat['region'], dat['lon'], dat['lat'])
-
-    #dat_res = pd.read_excel('Wave_power_density_hotspots.xlsx',
-    #                        'wpd_hotspot_spatialjoin', ).iloc[:, [11, 3, 5, 6, 7, 8]]
-    #dat_res.columns = ['name', 'dist', 'lon', 'lat', 'depth', 'resource']
-    dat_res = pd.read_excel('Wave_power_density_hotspots02.xlsx',
-                            'wpd_hotspot_spatialjoin', ).iloc[:, [10, 3, 4, 5, 6, 7]]
-    dat_res.columns = ['name', 'dist', 'lon', 'lat', 'depth', 'resource']
-    dat_res.dist *= 0.001
-
-    out = HotSpotData(dat, dat_res)
-
-    out.to_excel('WaveData_All.xlsx')
+    return HotSpotCollection(data, resdata, units=units)

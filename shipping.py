@@ -1,3 +1,12 @@
+"""
+A module for computing shipping costs based on regional base- and
+rate-costs.
+
+The primary function for use outside this modules is
+:func:`calc_shipping`.
+
+"""
+
 import numpy as np
 import pandas as pd
 
@@ -19,18 +28,21 @@ def calc_dist(lon0, lat0, lons, lats):
     return np.arccos(arg) * 3959
 
 
-class ShipCost(object):
+class _ShipCost(object):
     """
     A shipping cost calculator class.
 
     Parameters
     ----------
-
-    lon0 : The base point longitude.
-    lat0 : The base point latitude.
-    rate : The cost ($ per tonne per mile) of shipping from that point
+    lon0 : float
+           The base point longitude.
+    lat0 : float
+           The base point latitude.
+    rate : float
+           The cost ($ per tonne per mile) of shipping from that point
            to a point in its region.
-    start_cost : The cost to get to the base point from a mainland
+    start_cost : float
+                 The cost to get to the base point from a mainland
                  U.S. port ($ per tonne).
     """
     # Now we are getting into advanced 'object-oriented' programming.
@@ -60,6 +72,9 @@ class ShipCost(object):
 
     # __call__ is another special method. See below for details...
     def __call__(self, lon, lat):
+        """
+        Calculate the shipping cost for points 'lon', 'lat'.
+        """
         return self._calc_dist(lon, lat) * self.rate + self.start_cost
 
 # Now define the shipping costs for each region:
@@ -72,21 +87,21 @@ loc = {'Seattle': (-122.354225, 47.585205),
        }
 
 # Now we define the shipping cost calculators for each region:
-ship_cost_funcs = {'AKSE': ShipCost(loc['Seattle'],
+ship_cost_funcs = {'AKSE': _ShipCost(loc['Seattle'],
                                     0.10, 0,
                                     'AKSE', 'Seattle'),
-                   'AK': ShipCost(loc['Anchorage'],
+                   'AK': _ShipCost(loc['Anchorage'],
                                   0.12, 84,
                                   'AK', 'Anchorage'),
-                   'Pacific': ShipCost(loc['Honolulu'],
+                   'Pacific': _ShipCost(loc['Honolulu'],
                                        0.08, 88,
                                        'Pacific', 'Honolulu'),
-                   'vPR': ShipCost(loc['Puerto Rico'],
+                   'vPR': _ShipCost(loc['Puerto Rico'],
                                    0.08, 38,
                                    'vPR', 'Puerto Rico'),
                    }
 
-ship_cost_funcs['AKBS'] = ShipCost(loc['Unalaska'], 0.15,
+ship_cost_funcs['AKBS'] = _ShipCost(loc['Unalaska'], 0.15,
                                    ship_cost_funcs['AK'](*loc['Unalaska']),  # See NOTE1
                                    'AKBS', 'Unalaska')
 # NOTE1: The base shipping cost from Unalaska is based on the shipping
@@ -94,6 +109,28 @@ ship_cost_funcs['AKBS'] = ShipCost(loc['Unalaska'], 0.15,
 
 
 def calc_shipping(region, lons, lats):
+
+    """
+    Calculate the shipping costs for points in `region` at `lons`,
+    `lats`.
+
+    Parameters
+    ----------
+    region : array_like(N) of strings
+             each string indicates the region that each lat/lon
+             pair is in.
+    lons : array_like(N) of floats
+           longitudes of the points.
+    lons : array_like(N) of floats
+           latitudes of the points.
+
+    Notes
+    -----
+
+    The 'region' must match one of the keys in the ship_cost_funcs
+    dictionary in this module.
+
+    """
 
     if region.__class__ is pd.Series:
         out = pd.Series(np.zeros(region.shape, dtype=np.float32),
