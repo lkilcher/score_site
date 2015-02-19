@@ -445,8 +445,27 @@ class HotSpotCollection(object):
                 ):
         """
         Write the data in this HotSpotto an html table.
+
+        Parameters
+        ----------
+        buf : string or <file buffer>
+              The file to write the table to. If it is a string, and
+              it does not end in '.htm' or '.html', the latter will be
+              appended to the filename.
+        columns : list of strings
+                  The columns to print to the table.
+        cmap : <matplotlib colormap>
+               The colormap with which to color the table.
+        hline_widths : iterable
+                       A list of the line widths to use.
+        include_legend : bool (default: True)
+                         Specify whether to include a legend in the
+                         output file.
+        weights_in_head : bool (default: True)
+                          Specify whether to include the weights of
+                          each column with the title in the output
+                          file.
         """
-        
         dat = self.data[columns]
         tbl = dat.to_html(float_format=lambda s: ('%0.1f' % s)) + '\n'
         tbl = tbl.replace(r'border="1" ', 'style="border-collapse: collapse;"')
@@ -489,7 +508,7 @@ class HotSpotCollection(object):
                 if include_legend:
                     self._write_table_legend(buf=fl, cmap=cmap)
         else:
-            fl.write(tbl)
+            buf.write(tbl)
             if include_legend:
                 self.write_table_legend(fl)
 

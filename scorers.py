@@ -6,6 +6,7 @@ are used by incorporated them into one of the scoring models in the
 """
 import numpy as np
 import pandas as pd
+from base import cmaps, maxscore
 
 
 class Linear(object):
@@ -40,14 +41,8 @@ class Linear(object):
         """
         Score the data according to this score model.
         """
-        # This if statement 'block' makes sure `data` is in the right
-        # 'format' (object type)
         if data.__class__ is pd.Series:
             data = data.values
-        elif np.ndarray not in data.__class__.__mro__:
-            if not np.iterable(data):
-                data = [data]
-            data = np.array(data)
         return np.interp(data, self.values, self.scores)
 
     def __repr__(self,):
@@ -58,6 +53,90 @@ class Linear(object):
 
     def __copy__(self,):
         return self.__class__(self.values, self.scores, self.weight)
+
+    def space(self, num, start=None, stop=None):
+        """
+        Return numbers spaced evenly on this linear scale.
+
+        Parameters
+        ----------
+        num : int
+            The number of samples to generate.
+        start : float
+            ``self.base ** start`` is the starting value of the
+            sequence.
+        stop : float
+            ``self.base ** stop`` is the final value of the
+            sequence.
+        """
+        if start is None:
+            start = self.values.min()
+        if stop is None:
+            stop = self.values.max()
+        return np.linspace(start, stop, num)
+
+    def to_html(self,
+                buf,
+                legend_vals=None,
+                title='',
+                cmap=cmaps['green'],
+                hline_widths=[1],
+                score_col=True,):
+        """
+        Write the scorer as an html table colored by cmap according to
+        the scores.
+
+        Parameters
+        ----------
+        buf : string or <file buffer>
+              The file to write the table to. If it is a string, and
+              it does not end in '.htm' or '.html', the latter will be
+              appended to the filename.
+        legend_vals : array_like
+                      An iterable of values (in data units, not score
+                      units).
+        title : string
+                The heading above the data-units column of the table.
+        cmap : <matplotlib colormap>
+               The colormap to color the table with.
+        hline_widths : iterable
+                       A list of the line widths to use.
+        score_col : bool (default: True)
+                    Specify whether to include the 'score' column in
+                    the output.
+        """
+        if legend_vals is None:
+            legend_vals = self.space(6)
+        dat = pd.DataFrame({title: legend_vals})
+        if score_col:
+            dat['Score'] = pd.Series(self(dat[title]), dat.index)
+        frmt = lambda s: ('%d' % s) if s % 1 == 0 else ('%0.1f' % s)
+        tbl = dat.to_html(float_format=frmt, index=False) + '\n'
+        tbl = tbl.replace(r'border="1" ', 'style="border-collapse: collapse;"')
+        tbl = tbl.replace('<th>',
+                          '<th style="border-bottom:solid %0.1fpt;">' % hline_widths[0],
+                          1)  # +1 for index
+        for irow, val in enumerate(dat.values[:, 0]):
+            # This is for the first (index) column:
+            if hline_widths is not None:
+                lw_txt = ('border-bottom:solid %0.1fpt; ' %
+                          hline_widths[(irow + 1) % len(hline_widths)])
+            else:
+                lw_txt = ''
+            tbl = tbl.replace('<th>',
+                              '<th style="text-align:center; %s">' % lw_txt,
+                              1)
+            tbl = tbl.replace('<td>',
+                              ('<td style="text-align:center; background-color:rgb(%d, %d, %d);">' %
+                               tuple(np.array(cmap(self(val) / maxscore)[:3]) * 255)),
+                              1 + score_col)
+        if basestring in buf.__class__.__mro__:
+            if not (buf.endswith('.htm') | buf.endswith('.html')):
+                buf += '.html'
+            with open(buf, 'w') as fl:
+                fl.write(tbl)
+        else:
+            buf.write(tbl)
 
 
 class Log(Linear):
@@ -81,12 +160,37 @@ class Log(Linear):
 
     """
 
+    def space(self, num, start=None, stop=None):
+        """
+        Return numbers spaced evenly on this log scale.
+
+        Parameters
+        ----------
+        num : int
+            The number of samples to generate.
+        start : float
+            ``self.base ** start`` is the starting value of the
+            sequence.
+        stop : float
+            ``self.base ** stop`` is the final value of the
+            sequence.
+        """
+        if start is None:
+            start = self.values.min()
+        if stop is None:
+            stop = self.values.max()
+        return np.logspace(start, stop, num, base=self.base)
+
+    def _log(self, data):
+        data = np.log10(data)
+        if self.base != 10:
+            data /= np.log10(self.base)
+        return data
+
     def __init__(self, values, scores=[0, 10], weight=1, base=10):
         Linear.__init__(self, values, scores=scores, weight=weight)
         self.base = base
-        self.values = np.log10(self.values)
-        if base != 10:
-            self.values /= np.log10(base)
+        self.values = self._log(self.values)
 
     def __call__(self, data):
         """
@@ -99,8 +203,7 @@ class Log(Linear):
         # 'format' (object type)
         if data.__class__ is pd.Series:
             data = data.values
-        data = np.log10(data) / np.log10(self.base)
-        return np.interp(data, self.values, self.scores)
+        return np.interp(self._log(data), self.values, self.scores)
 
     def __repr__(self,):
         outstr = '<ScoreLog>\nWEIGHT: %4.2f, BASE: %0.1g\n' % (self.weight, self.base)

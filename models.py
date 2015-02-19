@@ -19,6 +19,7 @@ an aggregate score (and stores it in 'score_total').
 from copy import deepcopy
 import pandas as pd
 import numpy as np
+from base import cmaps
 
 
 class SumModel(object):
@@ -52,6 +53,45 @@ class SumModel(object):
     between 0 and 10.
 
     """
+
+    def to_html(self,
+                buf,
+                legend_vals={},
+                cmap=cmaps['green'],
+                hline_widths=[1],
+                score_col=True,
+                ):
+        """
+        Write the scorers in this model as a set of html tables
+        colored by cmap according to the scores.
+
+        Parameters
+        ----------
+        buf : string or file_buffer
+              The file to write the table to. If it is a string, and
+              it does not end in '.htm' or '.html', the latter will be
+              appended to the filename.
+        legend_vals : dict
+                      The keys should match those in the scorers of
+                      this model. Each value should be an array_like
+                      of values at which the table should have entries.
+        cmap : <matplotlib colormap>
+               The colormap to color the tables with.
+        hline_widths : iterable
+                       A list of the line widths to use.
+        score_col : bool (default: True)
+                    Specify whether to include the 'score' column in
+                    the output.
+        """
+        with open(buf, 'w') as fl:
+            for key, scr in self.scorers.iteritems():
+                scr.to_html(fl,
+                            legend_vals=legend_vals.get(key, None),
+                            title=key,
+                            cmap=cmap,
+                            hline_widths=hline_widths,
+                            score_col=score_col,
+                            )
 
     def __repr__(self,):
         outstr = "'%s' site scoring %s:\n" % (
