@@ -133,7 +133,7 @@ class HotSpot(object):
 
     coe = energy_cost
 
-    def __init__(self, data, resdata, model=None, units={}):
+    def __init__(self, data, resdata=None, model=None, units={}):
         self.units = units
         self.data = data
         self.resdata = resdata
@@ -203,37 +203,38 @@ class HotSpot(object):
         if clims is None:
             clims = [None, None]
         clims = list(clims)
-        if clims[0] is None:
-            clims[0] = self.resdata[mapdata].min()
-        if clims[1] is None:
-            clims[1] = self.resdata[mapdata].max()
+        if self.resdata is not None:
+            if clims[0] is None:
+                clims[0] = self.resdata[mapdata].min()
+            if clims[1] is None:
+                clims[1] = self.resdata[mapdata].max()
 
-        unt = ''
-        if mapdata in self.units:
-            unt = ' [' + self.units[mapdata] + ']'
+            unt = ''
+            if mapdata in self.units:
+                unt = ' [' + self.units[mapdata] + ']'
 
-        _write_kmz_legend(kml, values=legend_vals,
-                          title=mapdata.rstrip('_total').title() + unt,
-                          cmap=cmap, clims=clims)
+            _write_kmz_legend(kml, values=legend_vals,
+                              title=mapdata.rstrip('_total').title() + unt,
+                              cmap=cmap, clims=clims)
+            
+            fol = kml.newfolder(name=mapdata)
 
-        fol = kml.newfolder(name=mapdata)
-
-        for idx, d in self.resdata.iterrows():
-            pt = fol.newpoint(name='', coords=[(d.lon, d.lat)])
-            pt.style.iconstyle.icon.href = 'files/icon_circle.png'
-            c = mplc.rgb2hex(cmap(float(
-                (d[mapdata] - clims[0]) / (clims[1] - clims[0])
-            )))
-            c = 'FF' + c[5:] + c[3:5] + c[1:3]
-            pt.style.iconstyle.color = c
-            ed = simplekml.ExtendedData()
-            for dval in ['lon', 'lat', 'depth',
-                         'resource', 'dist', 'score_total']:
-                if dval in d:
-                    ed.newdata(dval + '_val',
-                               '%0.2f' % d[dval],
-                               dval)
-            pt.extendeddata = ed
+            for idx, d in self.resdata.iterrows():
+                pt = fol.newpoint(name='', coords=[(d.lon, d.lat)])
+                pt.style.iconstyle.icon.href = 'files/icon_circle.png'
+                c = mplc.rgb2hex(cmap(float(
+                    (d[mapdata] - clims[0]) / (clims[1] - clims[0])
+                )))
+                c = 'FF' + c[5:] + c[3:5] + c[1:3]
+                pt.style.iconstyle.color = c
+                ed = simplekml.ExtendedData()
+                for dval in ['lon', 'lat', 'depth',
+                             'resource', 'dist', 'score_total']:
+                    if dval in d:
+                        ed.newdata(dval + '_val',
+                                   '%0.2f' % d[dval],
+                                   dval)
+                pt.extendeddata = ed
 
         if fl:
             kml.addfile(package_root + '_img/icon_circle.png')
@@ -276,7 +277,7 @@ class HotSpotCollection(object):
 
     """
 
-    def __init__(self, data, resdata, model=None, units={}):
+    def __init__(self, data, resdata=None, model=None, units={}):
         self.data = data
         self.resdata = resdata
         self.model = model
@@ -291,19 +292,23 @@ class HotSpotCollection(object):
             dtmp = self.data.loc[val].copy()
         except ValueError:
             dtmp = self.data[val].copy()
-        if dtmp.ndim == 1:
-            return HotSpot(dtmp,
-                           self.resdata.loc[self.resdata.name == dtmp.name],
-                           model=self.model,
-                           units=self.units.copy(),
-                           )
+        if self.resdata is None:
+            rdat = None
         else:
             bidx = np.zeros(len(self.resdata['name']), dtype='bool')
             for nm in dtmp.index:
                 # Loop over names and grab the right resource data.
                 bidx |= self.resdata['name'] == nm
+            rdat = self.resdata[bidx]
+        if dtmp.ndim == 1:
+            return HotSpot(dtmp,
+                           rdat,
+                           model=self.model,
+                           units=self.units.copy(),
+                           )
+        else:
             return self.__class__(dtmp,
-                                  self.resdata[bidx],
+                                  rdat,
                                   self.model,
                                   units=self.units.copy())
 
@@ -348,17 +353,18 @@ class HotSpotCollection(object):
         if clims is None:
             clims = [None, None]
         clims = list(clims)
-        if clims[0] is None:
-            clims[0] = self.resdata[mapdata].min()
-        if clims[1] is None:
-            clims[1] = self.resdata[mapdata].max()
-        unt = ''
-        if mapdata in self.units:
-            unt = ' [' + self.units[mapdata] + ']'
-        ## Write the data for each location:
-        _write_kmz_legend(kml, cmap=cmap,
-                          title=mapdata.rstrip('_total').title() + unt,
-                          values=legend_vals, clims=clims)
+        if self.resdata is not None:
+            if clims[0] is None:
+                clims[0] = self.resdata[mapdata].min()
+            if clims[1] is None:
+                clims[1] = self.resdata[mapdata].max()
+            unt = ''
+            if mapdata in self.units:
+                unt = ' [' + self.units[mapdata] + ']'
+            ## Write the data for each location:
+            _write_kmz_legend(kml, cmap=cmap,
+                              title=mapdata.rstrip('_total').title() + unt,
+                              values=legend_vals, clims=clims)
         for idx in xrange(self.data.shape[0]):
             dnow = self[idx]
             fol = kml.newfolder(name=dnow.name)
@@ -401,7 +407,8 @@ class HotSpotCollection(object):
             buf = pd.io.excel.ExcelWriter(buf)
             #buf = pd.io.excel.ExcelWriter(buf, 'openpyxl')
         self.data.to_excel(buf, sheet_name='SiteData')
-        self.resdata.to_excel(buf, sheet_name='ResourceData', index=False)
+        if self.resdata is not None:
+            self.resdata.to_excel(buf, sheet_name='ResourceData', index=False)
         units = pd.Series(self.units)
         units = pd.DataFrame(units, index=units.index, columns=['units'])
         units.to_excel(buf, sheet_name='Units',)
@@ -545,20 +552,26 @@ class HotSpotCollection(object):
         if resource_fname is not None:
             if not resource_fname.endswith('.csv'):
                 resource_fname += '.csv'
-            self.resdata.to_csv(resource_fname, index=False)
+            if self.resdata is not None:
+                self.resdata.to_csv(resource_fname, index=False)
 
     def __repr__(self,):
         return self.data.__repr__()
 
     def __copy__(self):
         return HotSpotCollection(self.data.copy(),
-                                 self.resdata.copy(),
+                                 None if self.resdata is None else self.resdata.copy(),
                                  self.model,
                                  units=self.units.copy())
 
     copy = __copy__
 
-    def rank(self, clear_0_nan=True, ):
+    def rank(self,
+             sort_by=['score_total', 'load'],
+             ascending=[False, False],
+             sort_res_by=['name', 'score_total', 'resource'],
+             ascending_res=[True, False, False],
+             clear_0_nan=True, ):
         """
         Sort the site-data by the 'score_total' column (secondary
         sorted by: load).
@@ -569,24 +582,41 @@ class HotSpotCollection(object):
         Parameters
         ----------
 
+        sort_by : list
+                  A list of column names to use as the sort criteria.
+        ascending : list
+                  Boolean for each sort_by value, whether it should be
+                  ascending.
+
+        sort_res_by : list
+                   A list of column names to sort the resdata.
+        ascending_res : list
+                  Boolean for each sort_res_by value, whether it
+                  should be ascending.
+
         clear_0_nan : {True*, False}
                       Specifies whether to clear site entries that
                       have a score of zero or NaN.
 
         """
         bdi = np.isnan(self.data['score_total']) | (self.data['score_total'] == 0)
-        resbdi = np.isnan(self.resdata['score_total'])
+        if self.resdata is not None:
+            resbdi = np.isnan(self.resdata['score_total'])
         if clear_0_nan:
             self.data = self.data[~bdi]
-            self.resdata = self.resdata[~resbdi]
+            if self.resdata is not None:
+                self.resdata = self.resdata[~resbdi]
         else:
             self.data['score_total'][bdi] = -1
-            self.resdata['score_total'][resbdi] = -1
+            if self.resdata is not None:
+                self.resdata['score_total'][resbdi] = -1
         # Sort the results:
-        self.data = self.data.sort(['score_total', 'load'],
-                                   ascending=[False, False])
-        self.resdata = self.resdata.sort(['name', 'score_total', 'resource'],
-                                         ascending=[True, False, False])
+        self.data = self.data.sort(sort_by,
+                                   ascending=ascending)
+        if self.resdata is not None:
+            self.resdata = self.resdata.sort(sort_res_by,
+                                             ascending=ascending_res)
         if not clear_0_nan:
             self.data['score_total'][bdi] = np.NaN
-            self.resdata['score_total'][resbdi] = np.NaN
+            if self.resdata is not None:
+                self.resdata['score_total'][resbdi] = np.NaN

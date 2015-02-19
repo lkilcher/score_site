@@ -33,7 +33,10 @@ def load_excel(fname):
     """
 
     data = pd.read_excel(fname, 'SiteData', index_col=0)
-    resdata = pd.read_excel(fname, 'ResourceData')
+    try:
+        resdata = pd.read_excel(fname, 'ResourceData')
+    except:
+        resdata = None
     try:
         units = pd.read_excel(fname, 'Units',).iloc[:, 0].to_dict()
     except:

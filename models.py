@@ -146,6 +146,8 @@ class SumModel(object):
 
     def _set_resource_vars(self, data):
         data.resource_vars = []
+        if data.resdata is None:
+            return
         for nm in self.scorers:
             if (nm not in data.resdata.columns) and (nm not in data.data.columns):
                 raise Exception("The data has no column '%s'" % nm)
@@ -181,10 +183,11 @@ class SumModel(object):
         out = data.copy()
         self._set_resource_vars(out)
         out.model = self
-        # Calculate the resource data scores:
-        self._score_it(out.resdata, out.resource_vars)
-        # Assign the highest ranking resource data to the site data:
-        self._assign_resource2site(out)
+        if out.resdata is not None:
+            # Calculate the resource data scores:
+            self._score_it(out.resdata, out.resource_vars)
+            # Assign the highest ranking resource data to the site data:
+            self._assign_resource2site(out)
         # Now score the site data:
         self._score_it(out.data)
         return out
