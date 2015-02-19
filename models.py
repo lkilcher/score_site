@@ -103,8 +103,6 @@ class SumModel(object):
 
     def __init__(self, tag=None, **kwargs):
         self.scorers = deepcopy(kwargs)
-        self.resource_vars = list(set(self.scorers.keys()) &
-                                  {'dist', 'resource', 'depth'})
         self.tag = tag
 
     def __copy__(self, model_class=None, tag=None, **kwargs):
@@ -146,12 +144,20 @@ class SumModel(object):
         data['score_total'] = self._calc_total(data, weights)
         return data
 
+    def _set_resource_vars(self, data):
+        data.resource_vars = []
+        for nm in self.scorers:
+            if (nm not in data.resdata.columns) and (nm not in data.data.columns):
+                raise Exception("The data has no column '%s'" % nm)
+            if (nm in data.resdata.columns) and (nm not in data.data.columns):
+                data.resource_vars += [nm]
+
     def _assign_resource2site(self, out):
         """
         Add columns to the site data that contain the highest-scoring
         resource data.
         """
-        for nm in self.resource_vars:
+        for nm in out.resource_vars:
             # Initialize the columns of the site data:
             out.data[nm] = pd.Series(np.zeros(len(out.data.index)),
                                      index=out.data.index)
@@ -161,7 +167,7 @@ class SumModel(object):
                 idx = None
             else:
                 idx = np.argmax(out.resdata['score_total'][inds])
-            for nm in self.resource_vars:
+            for nm in out.resource_vars:
                 if idx is None:
                     val = np.NaN
                 else:
@@ -173,9 +179,10 @@ class SumModel(object):
         Score `data` according to this model.
         """
         out = data.copy()
+        self._set_resource_vars(out)
         out.model = self
         # Calculate the resource data scores:
-        self._score_it(out.resdata, self.resource_vars)
+        self._score_it(out.resdata, out.resource_vars)
         # Assign the highest ranking resource data to the site data:
         self._assign_resource2site(out)
         # Now score the site data:

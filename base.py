@@ -1,7 +1,7 @@
 """
 This module defines the base object types for score_site:
 
-- HotSpotData: This is the primary data type of the score_site
+- HotSpotCollection: This is the primary data type of the score_site
   package. It contains the resource and site data for a collection of
   sites.
 
@@ -289,6 +289,8 @@ class HotSpotCollection(object):
             dtmp = self.data.loc[val].copy()
         except TypeError:
             dtmp = self.data.loc[val].copy()
+        except ValueError:
+            dtmp = self.data[val].copy()
         if dtmp.ndim == 1:
             return HotSpot(dtmp,
                            self.resdata.loc[self.resdata.name == dtmp.name],
@@ -296,8 +298,12 @@ class HotSpotCollection(object):
                            units=self.units.copy(),
                            )
         else:
+            bidx = np.zeros(len(self.resdata['name']), dtype='bool')
+            for nm in dtmp.index:
+                # Loop over names and grab the right resource data.
+                bidx |= self.resdata['name'] == nm
             return self.__class__(dtmp,
-                                  self.resdata,
+                                  self.resdata[bidx],
                                   self.model,
                                   units=self.units.copy())
 
