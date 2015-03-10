@@ -97,13 +97,14 @@ class SumModel(object):
         outstr = "'%s' site scoring %s:\n" % (
             self.tag,
             str(self.__class__).rstrip("'>").split('.')[-1],
-            )
+        )
         outstr += self.scorers.__repr__()
         return outstr
 
-    def __init__(self, tag=None, **kwargs):
+    def __init__(self, tag=None, zero_1score_zero=False, **kwargs):
         self.scorers = deepcopy(kwargs)
         self.tag = tag
+        self.zero_1score_zero = zero_1score_zero
 
     def __copy__(self, model_class=None, tag=None, **kwargs):
         if model_class is None:
@@ -129,8 +130,12 @@ class SumModel(object):
     def _calc_total(self, data, weights):
         score = pd.Series(np.zeros(len(data.index)),
                           index=data.index)
+        zero_1col = np.zeros(len(data.index), dtype='bool')
         for nm, w in weights.iteritems():
             score += data['score_' + nm] * weights[nm]
+            zero_1col |= data['score_' + nm] == 0
+        if self.zero_1score_zero:
+            score[zero_1col] = 0
         return score
 
     def _score_it(self, data, names=None):
