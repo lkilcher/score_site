@@ -620,3 +620,39 @@ class HotSpotCollection(object):
             self.data['score_total'][bdi] = np.NaN
             if self.resdata is not None:
                 self.resdata['score_total'][resbdi] = np.NaN
+
+    def _zeros_series(self,):
+        return pd.Series(np.zeros(len(self.data.index)), index=self.data.index)
+
+    def compare_scores(self, other, name='score_total', compare_units='percent'):
+        """
+        Compare the scores of these results to those of another model
+        output.
+        """
+        if compare_units not in ['percent', 'diff']:
+            raise Exception("The compare_units input option most be either 'percent' or 'difff'.")
+        comp = self._zeros_series()
+        for loc in self.data.index:
+            if loc not in other.data.index:
+                comp[loc] = np.NaN
+            else:
+                o = other.data.loc[loc][name]
+                comp[loc] = (self.data.loc[loc][name] - o)
+                if compare_units == 'percent':
+                    comp[loc] /= o
+        self.data['comp_' + name + '-' + compare_units[0] + '_' + other.model.tag] = comp
+
+    def compare_rank(self, other, name='score_total'):
+        comp = self._zeros_series()
+        r = self.data[name].copy()
+        r.sort(ascending=False)
+        r = pd.Series(np.arange(len(r)), index=r.index)
+        ro = other.data[name].copy()
+        ro.sort(ascending=False)
+        ro = pd.Series(np.arange(len(ro)), index=ro.index)
+        for loc in r.index:
+            if loc not in ro.index:
+                comp[loc] = np.NaN
+            else:
+                comp[loc] = ro[loc] - r[loc]
+        self.data['comp_rank_' + other.model.tag] = comp
