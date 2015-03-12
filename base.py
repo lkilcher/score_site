@@ -292,21 +292,25 @@ class HotSpotCollection(object):
             dtmp = self.data.loc[val].copy()
         except ValueError:
             dtmp = self.data[val].copy()
-        if self.resdata is None:
-            rdat = None
-        else:
-            bidx = np.zeros(len(self.resdata['name']), dtype='bool')
-            for nm in dtmp.index:
-                # Loop over names and grab the right resource data.
-                bidx |= self.resdata['name'] == nm
-            rdat = self.resdata[bidx]
         if dtmp.ndim == 1:
+            if self.resdata is None:
+                rdat = None
+            else:
+                rdat = self.resdata[self.resdata['name'] == dtmp.name]
             return HotSpot(dtmp,
                            rdat,
                            model=self.model,
                            units=self.units.copy(),
                            )
         else:
+            if self.resdata is None:
+                rdat = None
+            else:
+                bidx = np.zeros(len(self.resdata['name']), dtype='bool')
+                for nm in dtmp.index:
+                    # Loop over names and grab the right resource data.
+                    bidx |= self.resdata['name'] == nm
+                rdat = self.resdata[bidx]
             return self.__class__(dtmp,
                                   rdat,
                                   self.model,
