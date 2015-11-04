@@ -7,6 +7,7 @@ are used by incorporated them into one of the scoring models in the
 import numpy as np
 import pandas as pd
 from base import cmaps, maxscore
+from matplotlib import pyplot as plt
 
 
 class Linear(object):
@@ -29,6 +30,24 @@ class Linear(object):
     `values` must either be monotonically increasing or decreasing.
     """
 
+    @property
+    def shape(self, ):
+        return (len(self), 2)
+
+    def __len__(self, ):
+        return len(self.values)
+
+    def to_array(self, col_labels=False):
+        dat = np.hstack((self.values[:, None], self.scores[:, None]))
+        if not col_labels:
+            return dat
+        shp = list(self.shape)
+        shp[0] += 1
+        out = np.empty(shp, dtype='O')
+        out[0, :] = 'VALUE', 'SCORE'
+        out[1:, :] = dat
+        return out
+
     def __init__(self, values, scores=[0, 10], weight=1):
         self.values = np.array(values)  # This copies the values.
         self.scores = np.array(scores)  # This copies the values.
@@ -44,6 +63,18 @@ class Linear(object):
         if data.__class__ is pd.Series:
             data = data.values
         return np.interp(data, self.values, self.scores)
+
+    def plot(self, ax=None, vals=None, **kwargs):
+        if ax is None:
+            ax = plt.gca()
+        if vals is None:
+            minmax = np.array([self.values.min(), self.values.max()])
+            minmax[0] = minmax[0] - 0.2 * np.diff(minmax)
+            minmax[1] = minmax[1] + 0.2 * np.diff(minmax)
+            if self.values.min() > 0 and minmax[0] < 0:
+                minmax[0] = 0
+            vals = self.space(50, minmax[0], minmax[1])
+        ax.plot(vals, self(vals), **kwargs)
 
     def __repr__(self,):
         outstr = '<ScoreLinear>\nWEIGHT: %4.2f\n' % (self.weight, )
@@ -79,7 +110,7 @@ class Linear(object):
                 buf,
                 legend_vals=None,
                 title='',
-                cmap=cmaps['green'],
+                cmap=cmaps['score'],
                 hline_widths=[1],
                 score_col=True,):
         """
@@ -179,7 +210,7 @@ class Log(Linear):
             start = self.values.min()
         if stop is None:
             stop = self.values.max()
-        return np.logspace(start, stop, num, base=self.base)
+        return np.logspace(self._log(start), self._log(stop), num, base=self.base)
 
     def _log(self, data):
         data = np.log10(data)
@@ -190,7 +221,7 @@ class Log(Linear):
     def __init__(self, values, scores=[0, 10], weight=1, base=10):
         Linear.__init__(self, values, scores=scores, weight=weight)
         self.base = base
-        self.values = self._log(self.values)
+        #self.values = self._log(self.values)
 
     def __call__(self, data):
         """
@@ -203,7 +234,7 @@ class Log(Linear):
         # 'format' (object type)
         if data.__class__ is pd.Series:
             data = data.values
-        return np.interp(self._log(data), self.values, self.scores)
+        return np.interp(self._log(data), self._log(self.values), self.scores)
 
     def __repr__(self,):
         outstr = '<ScoreLog>\nWEIGHT: %4.2f, BASE: %0.1g\n' % (self.weight, self.base)
@@ -233,6 +264,23 @@ class Table(object):
     weight : float
              The weight to give this scorers relative to others.
     """
+
+    @property
+    def shape(self, ):
+        return self.table.shape
+
+    def __len__(self, ):
+        return self.table.shape[0]
+
+    def to_array(self, col_labels=False):
+        if not col_labels:
+            return self.table
+        shp = list(self.shape)
+        shp[0] += 1
+        out = np.empty(shp, dtype='O')
+        out[0, :] = 'MINVAL', 'MAXVAL', 'SCORE'
+        out[1:, :] = self.table[:]
+        return out
 
     def __init__(self, table, weight=1):
         if np.array not in table.__class__.__mro__:

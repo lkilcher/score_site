@@ -81,4 +81,4 @@ from base import HotSpot, HotSpotCollection
 import scorers
 from models import ProdModel, SumModel, MultiModel
 from io import load_excel
-from base import cmaps
+from base import cmaps, MyCmap

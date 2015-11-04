@@ -14,26 +14,145 @@ from matplotlib import pyplot as plt
 import matplotlib.colors as mplc
 import simplekml
 from os import remove, path
+from io_write import write_excel
+import xlsxwriter as xlw
+from copy import deepcopy
+
+
+def round_sigfig(val, nsig=2):
+    try:
+        len(val)
+    except:
+        return np.float(('{:.%dg}' % (nsig)).format(val))
+    out = np.empty_like(val)
+    for idx, v in enumerate(val):
+        out[idx] = round_sigfig(v, nsig=nsig)
+    return out
 
 package_root = path.realpath(__file__).replace("\\", "/").rsplit('/', 1)[0] + '/'
 
-sub_cmap = lambda cmap, low, high: lambda val: cmap((high - low) * val + low)
+results_change_text = dict(Region={'vPR': 'Caribbean',
+                                   'NE': 'East Coast',
+                                   'AKSE': 'Alaska',
+                                   'AKBS': 'Alaska',
+                                   'AK': 'Alaska', },
+                           name={'N. Cal.': 'N. California',
+                                 'C. Cal.': 'C. California',
+                                 'S. Cal.': 'S. California',
+                           })
 
-cmaps = {'green': sub_cmap(plt.get_cmap('YlGn', ), 0.1, 0.7),
+
+## sub_cmap = lambda cmap, low, high: lambda val: cmap((high - low) * val + low)
+class MyCmap(object):
+
+    def __copy__(self, **kwargs):
+        return self.__class__(deepcopy(self.cmap), deepcopy(self.norm), deepcopy(self.subr))
+
+    def __init__(self, cmap, clims=[0.0, 1.0], sub_cmap_range=[0.0, 1.0], ):
+        self.cmap = cmap
+        self.norm = mplc.Normalize(clims[0], clims[1], clip=True)
+        self.subr = mplc.Normalize(sub_cmap_range[0], sub_cmap_range[1])
+
+    def hex(self, vals):
+        out = np.empty(len(vals), dtype='S7')
+        for idx, val in enumerate(vals):
+            out[idx] = mplc.rgb2hex(self(val))
+        return out
+
+    def __call__(self, vals):
+        return self.cmap(self.subr.inverse(self.norm(vals)))
+
+
+class dict_array(np.ndarray):
+
+    def __new__(cls, *args, **kwargs):
+        kwargs['dtype'] = 'O'  # Force object array.
+        o = np.ndarray.__new__(cls, *args, **kwargs)
+        o[:] = {}  # __setitem__ will make copies
+        return o
+
+    def update(self, **kwargs):
+        for item in self.flat:
+            item.update(**kwargs)
+
+    def __iadd__(self, val):
+        for item in self.flat:
+            item.update(**val)
+
+    def __getitem__(self, ind):
+        return np.ndarray.__getitem__(self, ind)
+
+    def __setslice__(self, i, j, val):
+        self.__setitem__(slice(i, j), val)
+
+    def __setitem__(self, ind, val):
+        if isinstance(ind, basestring):
+            for idx in xrange(len(self.flat)):
+                self[idx][ind] = val
+            return
+        subarr = self[ind]
+        if isinstance(val, dict):
+            if subarr.__class__ is dict:  # one value.
+                np.ndarray.__setitem__(self, ind, val.copy())
+                return
+            for idx in xrange(len(subarr.flat)):
+                subarr.flat[idx] = val.copy()
+            return
+        if isinstance(val, (list, tuple)) and len(val) == len(subarr.flat):
+            for idx in xrange(len(subarr.flat)):
+                subarr.flat[idx] = val[idx]
+            return
+        if isinstance(val, dict_array) and val.size == subarr.size:
+            for idx in range(len(subarr.flat)):
+                subarr.flat[idx] = deepcopy(val.flat[idx])
+            return
+        raise ValueError('dict_arrays can only contain dictionaries.')
+
+    def unique(self,):
+        return np.unique(self)
+
+## def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=256):
+##     new_cmap = mplc.LinearSegmentedColormap.from_list(
+##         'trunc({n},{a:.2f},{b:.2f})'.format(n=cmap.name, a=minval, b=maxval),
+##         cmap(np.linspace(minval, maxval, n)))
+##     return new_cmap
+
+cmaps = {'score': MyCmap(plt.get_cmap('YlGn', ), [0, 10], [0.1, 0.7], ),
          'red': plt.get_cmap('Reds'),
+         'red2': MyCmap(plt.get_cmap('Reds'), [0, 10], [0.0, 0.7]),
+         'rank_sens': MyCmap(plt.get_cmap('bwr_r'), [-3, 3], [.2, .8])
          }
-
+cmaps['score'].legend_vals = np.arange(10, -1, -2)
+cmaps['rank_sens'].legend_vals = np.arange(-3, 4, 1)
 
 maxscore = 10.0
 
 
-def _write_kmz_legend(buf, title, values, cmap, clims):
-    if values is False:
+def _format_dframe(dframe, cmaps=None, **kwargs):
+    if cmaps is None:
         return
-    if values is None:
-        values = np.arange(clims[1],
-                           clims[0] - (clims[1] - clims[0]) * 0.1,
-                           -(clims[1] - clims[0]) / 5.)
+    out = dict_array(dframe.shape)
+    out[:] = kwargs  # This performs a copy
+    for icol, nm in enumerate(dframe.columns):
+        for ky, cm in cmaps.iteritems():
+            if nm.startswith(ky):
+                scr = dframe.loc[:, nm]
+                nm_dat = nm.split('_', 1)[1]
+                if nm_dat in dframe.columns:
+                    icol_dat = dframe.columns.tolist().index(nm_dat)
+                else:
+                    icol_dat = None
+                for irow, val in enumerate(scr):
+                    out[irow, icol]['bg_color'] = mplc.rgb2hex(cm(val))
+                    if icol_dat is not None:
+                        out[irow, icol_dat] = out[irow, icol]
+    return out
+
+
+def _write_kmz_legend(buf, title, cmap):
+    if not hasattr(cmap, 'legend_vals'):
+        return
+    values = cmap.legend_vals
     if abs(values[-1] < 0.01):
         values[-1] = 0.0
 
@@ -69,9 +188,8 @@ def _write_kmz_legend(buf, title, values, cmap, clims):
             lbls.append('%d' % val)
         else:
             lbls.append('%0.1f' % val)
-        cval = (np.float(val) - clims[0]) / (clims[1] - clims[0])
         hndls.append(ax.plot(np.NaN, np.NaN, 'o',
-                             mfc=cmap(cval), mec='none', ms=20,
+                             mfc=cmap(val), mec='none', ms=20,
                              label=lbls[-1])[0])
     lgnd = fig.legend(hndls, lbls, title=title,
                       loc='upper left', numpoints=1)
@@ -85,7 +203,29 @@ def _write_kmz_legend(buf, title, values, cmap, clims):
     plt.interactive(inter)
 
 
-class HotSpot(object):
+class HotSpotBase(object):
+
+    _excelsheet_write_order = ['Site', 'Resource', 'Units', ]
+
+    def __init__(self, **kwargs):
+        self.data = dict(model=None)
+        self.data.update(**kwargs)
+
+    def __getattr__(self, nm):
+        try:
+            return self.data[nm]
+        except KeyError:
+            raise AttributeError("'%s' object has no attribute '%s'" %
+                                 (str(self.__class__).split('.')[-1].rstrip("'>"), str(nm)))
+
+    ## def __setattr__(self, nm, val):
+    ##     if nm in self.data:
+    ##         self.data[nm] = val
+    ##     else:
+    ##         object.__setattr__(self, nm, val)
+
+
+class HotSpot(HotSpotBase):
 
     """
     A single site 'hot spot' class.
@@ -105,45 +245,41 @@ class HotSpot(object):
     # These 'properties' define shortcuts to the site data.
     @property
     def name(self,):
-        return self.data.name
+        return self.data['Site'].name
 
     @property
     def lon(self,):
-        return self.data['lon']
+        return self.data['Site']['lon']
 
     @property
     def lat(self,):
-        return self.data['lat']
+        return self.data['Site']['lat']
 
     @property
     def region(self,):
-        return self.data['region']
+        return self.data['Site']['region']
 
     @property
     def shipping(self,):
-        return self.data['shipping']
+        return self.data['Site']['shipping']
 
     @property
     def load(self,):
-        return self.data['load']
+        return self.data['Site']['load']
 
     @property
     def energy_cost(self,):
-        return self.data['energy_cost']
+        return self.data['Site']['rate_avoid']
 
     coe = energy_cost
 
-    def __init__(self, data, resdata=None, model=None, units={}):
-        self.units = units
-        self.data = data
-        self.resdata = resdata
-        self.model = model
+    def __init__(self, **kwargs):
+        self.data = kwargs
 
     def to_kmz(self, buf,
                mapdata='resource',
                cmap=cmaps['red'],
-               clims=[None, None],
-               legend_vals=None,
+               legend=True,
                ):
         """
         Write a google earth '.kmz' file of the data. This method
@@ -155,19 +291,11 @@ class HotSpot(object):
         buf  : string
                The filename, or simplekml.Kml object to write data to.
         mapdata : string
-                  The column of `resdata` to map spatially.
+                  The data to color spatially.
         cmap : <matplotlib.colors.ColorMap>
                The colormap for the spatilly mapped data.
-        clims : iterable(2)
-                Two element object that indicates the [min, max]
-                values for the colormap. By default these values
-                are chosen to fill the data.
-        legend_vals : iterable
-                      The list of values to display in the legend. By
-                      default (legend_vals=None) the legend will have
-                      six values between clims[0] and
-                      clims[1]. legend_vals=False will not write a
-                      legend.
+        legend : bool {True*, False}
+           Print the legend?
 
         """
         if buf.__class__ in [simplekml.Kml, simplekml.Folder]:
@@ -176,7 +304,7 @@ class HotSpot(object):
         else:
             kml = simplekml.Kml()
             fl = True
-        pt = kml.newpoint(name=self.data.name, coords=[(self.lon, self.lat)])
+        pt = kml.newpoint(name=self.data['Site'].name, coords=[(self.lon, self.lat)])
         pt.lookat = simplekml.LookAt(
             gxaltitudemode=simplekml.GxAltitudeMode.relativetoseafloor,
             latitude=self.lat, longitude=self.lon, range=6.4E4,
@@ -199,37 +327,27 @@ class HotSpot(object):
                    self.shipping,
                    'Shipping Cost ($/tonne)')
         pt.extendeddata = ed
-
-        if clims is None:
-            clims = [None, None]
-        clims = list(clims)
-        if self.resdata is not None:
-            if clims[0] is None:
-                clims[0] = self.resdata[mapdata].min()
-            if clims[1] is None:
-                clims[1] = self.resdata[mapdata].max()
-
+        if self.data['Resource'] is not None:
             unt = ''
-            if mapdata in self.units:
-                unt = ' [' + self.units[mapdata] + ']'
+            if mapdata in self.data['Units']:
+                unt = ' [' + self.data['Units'][mapdata] + ']'
 
-            _write_kmz_legend(kml, values=legend_vals,
-                              title=mapdata.rstrip('_total').title() + unt,
-                              cmap=cmap, clims=clims)
-            
+            if legend:
+                _write_kmz_legend(kml,
+                                  title=mapdata.rstrip('_total').title() + unt,
+                                  cmap=cmap)
+
             fol = kml.newfolder(name=mapdata)
 
-            for idx, d in self.resdata.iterrows():
+            for idx, d in self.data['Resource'].iterrows():
                 pt = fol.newpoint(name='', coords=[(d.lon, d.lat)])
                 pt.style.iconstyle.icon.href = 'files/icon_circle.png'
-                c = mplc.rgb2hex(cmap(float(
-                    (d[mapdata] - clims[0]) / (clims[1] - clims[0])
-                )))
+                c = mplc.rgb2hex(cmap(d[mapdata]))
                 c = 'FF' + c[5:] + c[3:5] + c[1:3]
                 pt.style.iconstyle.color = c
                 ed = simplekml.ExtendedData()
                 for dval in ['lon', 'lat', 'depth',
-                             'resource', 'dist', 'score_total']:
+                             'resource', 'range', 'score_total']:
                     if dval in d:
                         ed.newdata(dval + '_val',
                                    '%0.2f' % d[dval],
@@ -245,7 +363,7 @@ class HotSpot(object):
                 pass
 
 
-class HotSpotCollection(object):
+class HotSpotCollection(HotSpotBase):
 
     """
     A data object for holding site data (:attr:`data`) and resource
@@ -277,50 +395,42 @@ class HotSpotCollection(object):
 
     """
 
-    def __init__(self, data, resdata=None, model=None, units={}):
-        self.data = data
-        self.resdata = resdata
-        self.model = model
-        self.units = units
-
     def __getitem__(self, val):
+        out = deepcopy(self.data)
         try:
-            dtmp = self.data.iloc[val].copy()
+            out['Site'] = out['Site'].iloc[val]
         except KeyError:
-            dtmp = self.data.loc[val].copy()
+            out['Site'] = out['Site'].loc[val]
         except TypeError:
-            dtmp = self.data.loc[val].copy()
+            out['Site'] = self.data['Site'].loc[val]
         except ValueError:
-            dtmp = self.data[val].copy()
-        if dtmp.ndim == 1:
-            if self.resdata is None:
-                rdat = None
-            else:
-                rdat = self.resdata[self.resdata['name'] == dtmp.name]
-            return HotSpot(dtmp,
-                           rdat,
-                           model=self.model,
-                           units=self.units.copy(),
-                           )
+            out['Site'] = self.data['Site'][val]
+        if out['Site'].ndim == 1:
+            if 'Resource' in out:
+                out['Resource'] = out['Resource'][out['Resource']['name'] == out['Site'].name]
+            return HotSpot(**out)
         else:
-            if self.resdata is None:
-                rdat = None
-            else:
-                bidx = np.zeros(len(self.resdata['name']), dtype='bool')
-                for nm in dtmp.index:
+            if 'Resource' in out:
+                bidx = np.zeros(len(self.Resource['name']), dtype='bool')
+                for nm in out['Site'].index:
                     # Loop over names and grab the right resource data.
-                    bidx |= self.resdata['name'] == nm
-                rdat = self.resdata[bidx]
-            return self.__class__(dtmp,
-                                  rdat,
-                                  self.model,
-                                  units=self.units.copy())
+                    bidx |= out['Resource'].name == nm
+                out['Resource'] = self.Resource[bidx]
+            return self.__class__(**out)
+
+    @property
+    def ind_max_resource(self,):
+        idx = np.zeros(self.Resource.name.shape, dtype='bool')
+        for nm in self.Site.index:
+            itmp = self.Resource.name == nm
+            if itmp.sum() == 0:
+                continue
+            idx[np.argmax(self.Resource.resource[itmp])] = True
+        return idx
 
     def to_kmz(self, buf,
                mapdata='resource',
                cmap=cmaps['red'],
-               clims=[None, None],
-               legend_vals=None,
                ):
         """
         Write a google earth '.kmz' file of the data. This method
@@ -335,16 +445,6 @@ class HotSpotCollection(object):
                   The column of `resdata` to map spatially.
         cmap : <matplotlib.colors.ColorMap>
                The colormap for the spatilly mapped data.
-        clims : iterable(2)
-                Two element object that indicates the [min, max]
-                values for the colormap. By default these values
-                are chosen to fill the data.
-        legend_vals : iterable
-                      The list of values to display in the legend. By
-                      default (legend_vals=None) the legend will have
-                      six values between clims[0] and
-                      clims[1]. legend_vals=False will not write a
-                      legend.
 
         """
         if buf.__class__ is simplekml.Kml:
@@ -353,30 +453,20 @@ class HotSpotCollection(object):
         else:
             kml = simplekml.Kml()
             fl = True
-        # Handle the default clims:
-        if clims is None:
-            clims = [None, None]
-        clims = list(clims)
-        if self.resdata is not None:
-            if clims[0] is None:
-                clims[0] = self.resdata[mapdata].min()
-            if clims[1] is None:
-                clims[1] = self.resdata[mapdata].max()
+        if self.Resource is not None:
             unt = ''
-            if mapdata in self.units:
-                unt = ' [' + self.units[mapdata] + ']'
+            if mapdata in self.Units:
+                unt = ' [' + self.Units[mapdata] + ']'
             ## Write the data for each location:
             _write_kmz_legend(kml, cmap=cmap,
-                              title=mapdata.rstrip('_total').title() + unt,
-                              values=legend_vals, clims=clims)
-        for idx in xrange(self.data.shape[0]):
+                              title=mapdata.rstrip('_total').title() + unt,)
+        for idx in xrange(self.Site.shape[0]):
             dnow = self[idx]
             fol = kml.newfolder(name=dnow.name)
             dnow.to_kmz(fol,
                         mapdata=mapdata,
                         cmap=cmap,
-                        clims=clims,
-                        legend_vals=False)
+                        legend=False)
             if idx == 0:
                 vw = fol.allfeatures[0].lookat
         kml.document.lookat = vw
@@ -389,7 +479,95 @@ class HotSpotCollection(object):
             except:
                 pass
 
-    def to_excel(self, buf):
+    def to_results_excel(self, buf, cols,
+                         bg_cmaps=None, titles=None, form_dict={},
+                         units={}, **kwargs):
+        if isinstance(buf, basestring):
+            if not (buf.endswith('.xlsx') or buf.endswith('.xls')):
+                buf += '.xlsx'
+            buf = xlw.Workbook(buf)
+        icol = [np.nonzero(self.data['Site'].columns == res)[0][0] for res in cols]
+        form_site = _format_dframe(self.data['Site'], bg_cmaps, **kwargs)
+        form = dict_array((form_site.shape[0] + 1, len(icol) + 2))
+        form[1:, 2:] = form_site[:, icol]
+        form[0].update(bold=True, bottom=2, right=1, text_wrap=True, valign='top')
+        form[0, 0].update(width=2.9)
+        form[0, 1].update(width=20)
+        form[1:].update(right=1, left=1, bottom=1)
+        form[:, 1].update(bold=True, right=2)
+        if 'market_constraint' in cols:
+            idx = cols.index('market_constraint')
+            if cols[idx - 1] == 'market':
+                idx += 2  # This is for the offset of columns
+                form[1:, idx] = form[1:, idx - 1]
+                form[1:, idx].update(left=0)
+                form[1:, idx - 1].update(right=0)
+                form[1, idx].update(width=1.2)
+                form[0, idx - 1:(idx + 1)].update(merge='market')
+            if cols[idx + 1] == 'market':
+                idx += 2  # This is for the offset of columns
+                form[1:, idx] = form[1:, idx + 1]
+                form[1:, idx].update(left=0)
+                form[1:, idx + 1].update(right=0)
+                form[0, idx:(idx + 2)].update(merge='market')
+        if titles is None:
+            titles = deepcopy(cols)
+            for idx in xrange(len(titles)):
+                if titles[idx] == 'score_total':
+                    titles[idx] = 'Score'
+                if titles[idx] == 'rate_avoid':
+                    titles[idx] = 'Energy Cost'
+                if titles[idx].startswith('comp_rank'):
+                    titles[idx] = 'Rank\nChange'
+                if titles[idx].startswith('rank_sens'):
+                    titles[idx] = 'Rank\nSens.'
+                titles[idx] = titles[idx].title()
+                if cols[idx] in self.data['Units'].index:
+                    unit = str(self.data['Units'].loc[cols[idx]].values[0])
+                    if unit == '$/tonne':
+                        unit = '$/ton'
+                elif cols[idx] == 'market':
+                    unit = 'MW'
+                elif cols[idx] == 'range':
+                    unit = 'km'
+                elif cols[idx] == 'rate_avoid':
+                    unit = '$/kWh'
+                else:
+                    unit = None
+                if cols[idx] in units:
+                    unit = units[cols[idx]]
+                if unit is not None:
+                    titles[idx] += u'\n[{}]'.format(unit)
+        out = np.vstack((np.array(['', '', ] + titles)[None, :],
+                         np.hstack((
+                             np.arange(1, len(self.data['Site']) + 1)[:, None],
+                             self.data['Site'].index[:, None],
+                             np.array(self.data['Site'].iloc[:, icol], )))))
+        for nm, f in form_dict.iteritems():
+            if nm in cols:
+                ind = cols.index(nm) + 2
+                form[:, ind].update(**f)
+        if 'market' in cols:
+            ind = cols.index('market') + 2
+            out[1:, ind] = round_sigfig(out[1:, ind], 2)
+        for idx, nm in enumerate(cols):
+            if nm.startswith('rank_'):
+                form[1, idx + 2].update(width=7)
+                form[:, idx + 2].update(align='center', num_format='[<0]-0.0;[>=0]_-0.0')
+            elif nm.startswith('comp_rank'):
+                form[1, idx + 2].update(width=7)
+                form[:, idx + 2].update(align='center', num_format='[<0]-0;[>=0]_-0')
+        for ky, vals in results_change_text.iteritems():
+            if ky in cols:
+                ind = cols.index(ky) + 2
+                for old, new in vals.iteritems():
+                    out[out[:, ind] == old, ind] = new
+            ind = 1
+            for old, new in results_change_text['name'].iteritems():
+                out[out[:, ind] == old, ind] = new
+        write_excel(buf, out, format=form, sheet_name='results')
+
+    def to_excel(self, buf, bg_cmaps=None, results_args=None, **kwargs):
         """
         Write the data in this data object to a Microsoft Excel file (.xlsx).
 
@@ -398,6 +576,9 @@ class HotSpotCollection(object):
 
         buf : string
               The filename or buffer to write to.
+        bg_cmaps : dict of cmaps
+            The key should be the leading text of a column (or set of
+            columns) that will have their background colored.
 
         Notes
         -----
@@ -405,22 +586,50 @@ class HotSpotCollection(object):
         to the file name.
 
         """
-        if basestring in buf.__class__.__mro__:
+        if isinstance(buf, basestring):
             if not (buf.endswith('.xlsx') or buf.endswith('.xls')):
                 buf += '.xlsx'
-            buf = pd.io.excel.ExcelWriter(buf)
-            #buf = pd.io.excel.ExcelWriter(buf, 'openpyxl')
-        self.data.to_excel(buf, sheet_name='SiteData')
-        if self.resdata is not None:
-            self.resdata.to_excel(buf, sheet_name='ResourceData', index=False)
-        units = pd.Series(self.units)
-        units = pd.DataFrame(units, index=units.index, columns=['units'])
-        units.to_excel(buf, sheet_name='Units',)
+            buf = xlw.Workbook(buf)
+        for nm in (self._excelsheet_write_order +
+                   list(set(self.data.keys()) - set(self._excelsheet_write_order))):
+            dat = self.data[nm]
+            if isinstance(dat, pd.DataFrame):
+                form = _format_dframe(dat, bg_cmaps, **kwargs)
+                write_excel(buf, dat,
+                            format=form,
+                            sheet_name=nm)
+            elif isinstance(dat, dict) and nm == 'Units':
+                outd = pd.DataFrame(data={'units': dat.values()}, index=dat.keys())
+                write_excel(buf, outd, sheet_name=nm)
+            elif hasattr(dat, 'to_excel'):
+                dat.to_excel(buf, sheet_name=nm)
+        if results_args is not None:
+            self.to_results_excel(buf, bg_cmaps=bg_cmaps, **results_args)
+        if bg_cmaps is not None:
+            lgnds = []
+            maxlen = 0
+            for nm, cm in bg_cmaps.iteritems():
+                if cm is not None and hasattr(cm, 'legend_vals'):
+                    lgnds.append(nm)
+                    maxlen = max(maxlen, len(cm.legend_vals))
+            if maxlen:
+                out = np.empty((1 + maxlen, len(lgnds)), dtype='O')
+                format = dict_array(out.shape)
+                for idx, nm in enumerate(lgnds):
+                    cm = bg_cmaps[nm]
+                    out[0, idx] = nm
+                    out[1:(len(cm.legend_vals) + 1), idx] = cm.legend_vals
+                    format[1:(len(cm.legend_vals) + 1), idx] = [
+                        {'bg_color': mplc.rgb2hex(val)}
+                        for val in cm(cm.legend_vals)]
+                write_excel(buf, out,
+                            format=format,
+                            sheet_name='legend')
         buf.close()
 
     def _write_table_legend(self, values=range(10, -1, -2),
                             buf='default_legend.html',
-                            cmap=cmaps['green'],
+                            cmap=cmaps['score'],
                             ):
         """
         Write the table legend for the colormap specified by `cmap`
@@ -455,7 +664,7 @@ class HotSpotCollection(object):
     def to_html(self, buf,
                 columns=['energy_cost', 'load', 'dist',
                          'resource', 'depth', 'shipping', 'score_total'],
-                cmap=cmaps['green'],
+                cmap=cmaps['score'],
                 hline_widths=[1],
                 include_legend=True,
                 weights_in_head=True,
@@ -483,7 +692,7 @@ class HotSpotCollection(object):
                           each column with the title in the output
                           file.
         """
-        dat = self.data[columns]
+        dat = self.Site[columns]
         tbl = dat.to_html(float_format=lambda s: ('%0.1f' % s)) + '\n'
         tbl = tbl.replace(r'border="1" ', 'style="border-collapse: collapse;"')
         form = np.empty_like(dat, dtype='O')
@@ -513,9 +722,9 @@ class HotSpotCollection(object):
                     col_score = col
                 else:
                     col_score = 'score_' + col
-                if col_score in self.data:
+                if col_score in self.Site:
                     form[irow, icol] += ('background-color:rgb(%d, %d, %d); ' %
-                                         tuple(np.array(cmap(self.data[col_score][irow] / maxscore)[:3]) * 255))
+                                         tuple(np.array(cmap(self.Site[col_score][irow] / maxscore)[:3]) * 255))
         tbl = tbl.format(form=form)
         if basestring in buf.__class__.__mro__:
             if not (buf.endswith('.htm') | buf.endswith('.html')):
@@ -552,30 +761,29 @@ class HotSpotCollection(object):
         """
         if not fname.endswith('.csv'):
             fname += '.csv'
-        self.data.to_csv(fname + '.csv',)
+        self.Site.to_csv(fname + '.csv',)
         if resource_fname is not None:
             if not resource_fname.endswith('.csv'):
                 resource_fname += '.csv'
-            if self.resdata is not None:
-                self.resdata.to_csv(resource_fname, index=False)
+            if self.Resource is not None:
+                self.Resource.to_csv(resource_fname, index=False)
 
     def __repr__(self,):
-        return self.data.__repr__()
+        return self.Site.__repr__()
 
     def __copy__(self):
-        return HotSpotCollection(self.data.copy(),
-                                 None if self.resdata is None else self.resdata.copy(),
-                                 self.model,
-                                 units=self.units.copy())
+        return HotSpotCollection(**deepcopy(self.data))
 
     copy = __copy__
 
     def rank(self,
              sort_by=['score_total', 'load'],
-             ascending=[False, False],
+             ascending=False,
              sort_res_by=['name', 'score_total', 'resource'],
              ascending_res=[True, False, False],
-             clear_0_nan=True, ):
+             clear_0_nan=True,
+             scores_adjacent=True,
+             ):
         """
         Sort the site-data by the 'score_total' column (secondary
         sorted by: load).
@@ -603,32 +811,83 @@ class HotSpotCollection(object):
                       have a score of zero or NaN.
 
         """
-        bdi = np.isnan(self.data['score_total']) | (self.data['score_total'] == 0)
-        if self.resdata is not None:
-            resbdi = np.isnan(self.resdata['score_total'])
+        if isinstance(ascending, bool):
+            ascending = [ascending]
+        if len(ascending) == 1:
+            ascending *= len(sort_by)
+        bdi = np.isnan(self.Site['score_total']) | (self.Site['score_total'] == 0)
+        if 'Resource' in self.data:
+            resbdi = np.isnan(self.data['Resource']['score_total'])
         if clear_0_nan:
-            self.data = self.data[~bdi]
-            if self.resdata is not None:
-                self.resdata = self.resdata[~resbdi]
+            self.data['Site_all'] = self.data['Site'].copy()
+            self.data['Site_all'].ix[bdi, 'score_total'] = -1
+            self.data['Site'] = self.data['Site'][~bdi]
+            if 'Resource' in self.data:
+                self.data['Resource'] = self.data['Resource'][~resbdi]
         else:
-            self.data['score_total'][bdi] = -1
-            if self.resdata is not None:
-                self.resdata['score_total'][resbdi] = -1
+            self.Site.ix[bdi, 'score_total'] = -1
+            if 'Resource' in self.data:
+                self.data['Resource'].ix[resbdi, 'score_total'] = -1
         # Sort the results:
-        self.data = self.data.sort(sort_by,
-                                   ascending=ascending)
-        if self.resdata is not None:
-            self.resdata = self.resdata.sort(sort_res_by,
-                                             ascending=ascending_res)
+        self.data['Site'] = self.data['Site'].sort(sort_by,
+                                                   ascending=ascending)
+        if 'Site_all' in self.data:
+            self.data['Site_all'] = self.data['Site_all'].sort(sort_by,
+                                                               ascending=ascending)
+            self.data['Site_all'].ix[bdi, 'score_total'] = np.NaN
+        if 'Resource' in self.data:
+            self.data['Resource'] = self.data['Resource'].sort(sort_res_by,
+                                                               ascending=ascending_res)
         if not clear_0_nan:
-            self.data['score_total'][bdi] = np.NaN
-            if self.resdata is not None:
-                self.resdata['score_total'][resbdi] = np.NaN
+            self.data['Site'].ix[bdi, 'score_total'] = np.NaN
+            if 'Resource' in self.data:
+                self.data['Resource'].ix[resbdi, 'score_total'] = np.NaN
+
+    def organize_cols(self, col_ord=None, scores_adjacent=True, unlisted_first=True):
+        """
+        Organize the columns of the data.
+
+        Parameters
+        ----------
+        col_ord : list
+            The order of the columns that you would like.
+        scores_adjacent : bool
+            Whether the columns that are scores should be moved to be
+            adjacent to the column it corresponds to.
+        unlisted_first : bool or None
+            Whether the unlisted items should be first (True), last
+            (False), or not included (None).
+        """
+        def get_order(cols):
+            unlisted = []
+            ordered = []
+            for col in cols:
+                if col.startswith('score') and scores_adjacent and col not in col_ord:
+                    continue
+                if col not in col_ord:
+                    unlisted.append(col)
+                    if 'score_' + col in cols:
+                        unlisted.append('score_' + col)
+            for col in col_ord:
+                if col in cols:
+                    ordered.append(col)
+                    if 'score_' + col in cols:
+                        ordered.append('score_' + col)
+            if unlisted_first is None:
+                order = ordered
+            elif unlisted_first:
+                order = unlisted + ordered
+            else:
+                order = ordered + unlisted
+            return order
+        self.data['Site'] = self.data['Site'].loc[:, get_order(self.Site.columns)]
+        self.data['Resource'] = self.data['Resource'].loc[:, get_order(self.Resource.columns)]
 
     def _zeros_series(self,):
-        return pd.Series(np.zeros(len(self.data.index)), index=self.data.index)
+        return pd.Series(np.zeros(len(self.Site.index)), index=self.Site.index)
 
-    def compare_scores(self, other, name='score_total', compare_units='percent'):
+    def compare_scores(self, other, name='score_total',
+                       compare_units='percent', append_to_other=False):
         """
         Compare the scores of these results to those of another model
         output.
@@ -636,22 +895,24 @@ class HotSpotCollection(object):
         if compare_units not in ['percent', 'diff']:
             raise Exception("The compare_units input option most be either 'percent' or 'difff'.")
         comp = self._zeros_series()
-        for loc in self.data.index:
-            if loc not in other.data.index:
+        for loc in self.data['Site'].index:
+            if loc not in other.data['Site'].index:
                 comp[loc] = np.NaN
             else:
-                o = other.data.loc[loc][name]
-                comp[loc] = (self.data.loc[loc][name] - o)
+                o = other.data['Site'].loc[loc][name]
+                comp[loc] = (self.data['Site'].loc[loc][name] - o)
                 if compare_units == 'percent':
                     comp[loc] /= o
-        self.data['comp_' + name + '-' + compare_units[0] + '_' + other.model.tag] = comp
+        self.data['Site']['comp_' + name + '-' + compare_units[0] + '_' + other.model.tag] = comp
+        if append_to_other:
+            other.data['Site']['comp_' + name + '-' + compare_units[0] + '_' + self.model.tag] = comp
 
-    def compare_rank(self, other, name='score_total'):
+    def compare_rank(self, other, name='score_total', append_to_other=False):
         comp = self._zeros_series()
-        r = self.data[name].copy()
+        r = self.data['Site'][name].copy()
         r.sort(ascending=False)
         r = pd.Series(np.arange(len(r)), index=r.index)
-        ro = other.data[name].copy()
+        ro = other.data['Site'][name].copy()
         ro.sort(ascending=False)
         ro = pd.Series(np.arange(len(ro)), index=ro.index)
         for loc in r.index:
@@ -659,4 +920,13 @@ class HotSpotCollection(object):
                 comp[loc] = np.NaN
             else:
                 comp[loc] = ro[loc] - r[loc]
-        self.data['comp_rank_' + other.model.tag] = comp
+        self.data['Site']['comp_rank_' + other.model.tag] = comp
+        if append_to_other:
+            other.data['Site']['comp_rank_' + self.model.tag] = comp
+
+    def mean_rank_sensitivity(self, ):
+        lst = []
+        for nm in self.data['Site']:
+            if nm.startswith('comp_rank_'):
+                lst += [nm]
+        return np.mean(self.data['Site'].ix[:, lst], 1)

@@ -5,7 +5,6 @@ This module defines the function for reading data into
 from base import HotSpotCollection
 import pandas as pd
 
-
 def load_excel(fname):
     """
     Load data from the Excel file 'fname'. This file must contain
@@ -31,14 +30,11 @@ def load_excel(fname):
     'dist'), and B) the 'unit' string (e.g. 'kWh' or 'km').
 
     """
-
-    data = pd.read_excel(fname, 'SiteData', index_col=0)
-    try:
-        resdata = pd.read_excel(fname, 'ResourceData')
-    except:
-        resdata = None
-    try:
-        units = pd.read_excel(fname, 'Units',).iloc[:, 0].to_dict()
-    except:
-        units = {}
-    return HotSpotCollection(data, resdata, units=units)
+    if pd.__version__ > '0.16':
+        return HotSpotCollection(**pd.read_excel(fname, sheetname=None, index_col=0))
+    else:
+        dat = {}
+        fl = pd.ExcelFile(fname, engine='xlsxwriter')
+        for nm in fl.sheet_names:
+            dat[nm] = pd.read_excel(fl, sheetname=nm, index_col=0)
+        return HotSpotCollection(**dat)

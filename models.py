@@ -19,8 +19,9 @@ an aggregate score (and stores it in 'score_total').
 from copy import deepcopy
 import pandas as pd
 import numpy as np
-from base import cmaps
-
+from base import cmaps, dict_array
+from io_write import write_excel
+import pdb
 
 class SumModel(object):
     """
@@ -54,10 +55,17 @@ class SumModel(object):
 
     """
 
+    @property
+    def maxlen(self, ):
+        out = 0
+        for s in self.scorers.itervalues():
+            out = max(out, len(s))
+        return out
+
     def to_html(self,
                 buf,
                 legend_vals={},
-                cmap=cmaps['green'],
+                cmap=cmaps['score'],
                 hline_widths=[1],
                 score_col=True,
                 ):
@@ -92,6 +100,28 @@ class SumModel(object):
                             hline_widths=hline_widths,
                             score_col=score_col,
                             )
+
+    def to_excel(self, buf, sheet_name='model', cmap=None):
+        out = np.empty((self.maxlen + 5, 3 * len(self.scorers)), dtype='O')
+        format = out.copy().view(dict_array)
+        out[0, 0] = 'Model Type:'
+        out[0, 1] = str(self.__class__).split('.')[-1].rstrip(">'")
+        format[0, :] = dict(bottom=1)
+        format[0, :2] = dict(bottom=1, bold=True)
+        colors = ['#CCFFCC', '#FFCC99']
+        for idx, (nm, s) in enumerate(self.scorers.iteritems()):
+            i0 = 3 * idx
+            c = colors[idx % 2]
+            format[1:4, i0:(i0 + 2)] = dict(bg_color=c)
+            out[1:4, i0] = 'Variable:', 'Type:', 'Weight:'
+            out[1:4, i0 + 1] = nm, str(s.__class__).split('.')[-1].rstrip("'>"), s.weight
+            format[1, i0 + 1] = dict(bg_color=c, bold=True)
+            arr = s.to_array(col_labels=True)
+            shp = arr.shape
+            format[4, i0:i0 + shp[1]] = dict(bottom=6, )
+            format[4:(4 + shp[0]), i0:(i0 + shp[1])] = dict(bg_color=c)
+            out[4:(4 + shp[0]), i0:(i0 + shp[1])] = arr
+        write_excel(buf, out, format=format, sheet_name=sheet_name)
 
     def __repr__(self,):
         outstr = "'%s' site scoring %s:\n" % (
@@ -151,12 +181,12 @@ class SumModel(object):
 
     def _set_resource_vars(self, data):
         data.resource_vars = []
-        if data.resdata is None:
+        if data.Resource is None:
             return
         for nm in self.scorers:
-            if (nm not in data.resdata.columns) and (nm not in data.data.columns):
+            if (nm not in data.Resource.columns) and (nm not in data.Site.columns):
                 raise Exception("The data has no column '%s'" % nm)
-            if (nm in data.resdata.columns) and (nm not in data.data.columns):
+            if (nm in data.Resource.columns) and (nm not in data.Site.columns):
                 data.resource_vars += [nm]
 
     def _assign_resource2site(self, out):
@@ -164,22 +194,25 @@ class SumModel(object):
         Add columns to the site data that contain the highest-scoring
         resource data.
         """
+        nanseries = pd.Series(np.zeros(len(out.Site.index)),
+                              index=out.Site.index) * np.NaN
+        out.Site['lon_maxscore'] = nanseries
+        out.Site['lat_maxscore'] = nanseries.copy()
         for nm in out.resource_vars:
             # Initialize the columns of the site data:
-            out.data[nm] = pd.Series(np.zeros(len(out.data.index)),
-                                     index=out.data.index)
-        for site in out.data.index:
-            inds = (out.resdata.name == site)
-            if inds.sum() == 0 or np.isnan(out.resdata['score_total'][inds]).all():
+            out.Site[nm] = nanseries.copy()
+        for site in out.Site.index:
+            inds = (out.Resource.name == site)
+            if inds.sum() == 0 or np.isnan(out.Resource['score_total'][inds]).all():
                 idx = None
             else:
-                idx = np.argmax(out.resdata['score_total'][inds])
+                idx = np.argmax(out.Resource['score_total'][inds])
+            if idx is None:
+                continue
+            out.Site.loc[site, 'lon_maxscore'] = out.Resource['lon'][idx]
+            out.Site.loc[site, 'lat_maxscore'] = out.Resource['lat'][idx]
             for nm in out.resource_vars:
-                if idx is None:
-                    val = np.NaN
-                else:
-                    val = out.resdata[nm][idx]
-                out.data.loc[site, nm] = val
+                out.Site.loc[site, nm] = out.Resource[nm][idx]
 
     def __call__(self, data):
         """
@@ -187,14 +220,14 @@ class SumModel(object):
         """
         out = data.copy()
         self._set_resource_vars(out)
-        out.model = self
-        if out.resdata is not None:
+        out.data['model'] = self
+        if out.Resource is not None:
             # Calculate the resource data scores:
-            self._score_it(out.resdata, out.resource_vars)
+            self._score_it(out.Resource, out.resource_vars)
             # Assign the highest ranking resource data to the site data:
             self._assign_resource2site(out)
         # Now score the site data:
-        self._score_it(out.data)
+        self._score_it(out.Site)
         return out
 
 
@@ -251,10 +284,10 @@ class MultiModel(object):
         """
         Score `data` according to this MultiModel.
         """
-        tag = pd.Series(np.empty(len(data.data.index), dtype='S20'),
-                        index=data.data.index, )
-        restag = pd.Series(np.empty(len(data.resdata.index), dtype='S20'),
-                           index=data.resdata.index, )
+        tag = pd.Series(np.empty(len(data.Site.index), dtype='S20'),
+                        index=data.Site.index, )
+        restag = pd.Series(np.empty(len(data.Resource.index), dtype='S20'),
+                           index=data.Resource.index, )
         tag[:] = self.models[0].tag
         restag[:] = self.models[0].tag
         for idx, mdl in enumerate(self.models):
@@ -262,13 +295,13 @@ class MultiModel(object):
             if idx == 0:
                 out = now
             else:
-                inds = now.data['score_total'] > out.data['score_total']
-                out.data[inds] = now.data[inds]
+                inds = now.Site['score_total'] > out.Site['score_total']
+                out.Site[inds] = now.Site[inds]
                 tag[inds] = mdl.tag
-                inds = now.resdata['score_total'] > out.resdata['score_total']
-                out.resdata[inds] = now.resdata[inds]
+                inds = now.Resource['score_total'] > out.Resource['score_total']
+                out.Resource[inds] = now.Resource[inds]
                 restag[inds] = mdl.tag
-        out.data['best_model'] = tag
-        out.resdata['best_model'] = restag
+        out.Site['best_model'] = tag
+        out.Resource['best_model'] = restag
 
         return out

@@ -84,7 +84,7 @@ loc = {'Seattle': (-122.354225, 47.585205),
        'Unalaska': (-166.542329, 53.895248),
        'Honolulu': (-157.884029, 21.313276),
        'Puerto Rico': (-66.141875, 18.435342),
-       'Portland ME': (-70.255, 43.661), 
+       'Portland ME': (-70.255, 43.661),
        }
 
 # Now we define the shipping cost calculators for each region:
@@ -101,7 +101,7 @@ ship_cost_funcs = {'AKSE': _ShipCost(loc['Seattle'],
                                     0.08, 38,
                                     'vPR', 'Puerto Rico'),
                    'NE': _ShipCost(loc['Portland ME'],
-                                   0.08, 10,
+                                   0.08, 0,
                                    'NE', 'Portland ME'),
                    }
 
@@ -135,20 +135,17 @@ def calc_shipping(region, lons, lats):
     dictionary in this module.
 
     """
-
     if region.__class__ is pd.Series:
-        out = pd.Series(np.zeros(region.shape, dtype=np.float32),
-                        index=region.index)
+        idx = region.index
         region = region.values
     else:
-        out = np.zeros_like(region)
+        idx = None
+    out = np.zeros_like(region)
     if lons.__class__ is pd.Series:
         lons = lons.values
     if lats.__class__ is pd.Series:
         lats = lats.values
-
     for ky, func in ship_cost_funcs.iteritems():
         inds = region == ky
         out[inds] = func(lons[inds], lats[inds]).astype(np.float32)
-
     return out
