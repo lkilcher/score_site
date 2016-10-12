@@ -47,7 +47,13 @@ Installation
 This package is not meant for *install*, per se. Rather, it should be
 used on the specific data files for which it was created. As such, it
 is recommended that you simply place this package in a working
-directory containing the scripts that will utilize it.
+directory containing the scripts that will utilize it. To do this
+either unzip the repositories'
+[zip file](http://github.com/lkilcher/score_site/archive/master.zip)
+into a `score_site` folder in the working directory, or `cd` into that working directory, and
+type:
+
+    git clone http://github.com/lkilcher/score_site.git
 
 The dependencies of this package can be found in the
 `requirements.txt` file. To install the *dependencies* for this
