@@ -1,0 +1,5 @@
+pandas>=0.17
+numpy>=1.0
+matplotlib>=1.5
+xlsxwriter>=0.7
+simplekml>=1.2
