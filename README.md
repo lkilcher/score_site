@@ -3,7 +3,7 @@ Decision Analysis (MCDA) of wave and tidal market opportunities in the
 U.S.. This package was developed under the U.S. Department of Energy's
 'Early Market Opportunity Hot Spot Identification' project. The
 results of this work are available in the MHK Energy Early Market Site
-Identification and Ranking Methodology reports.
+Identification and Ranking Methodology reports ([Part I: Wave Energy](http://www.nrel.gov/docs/fy17osti/66038.pdf), and [Part II: Tidal Energy](http://www.nrel.gov/docs/fy17osti/66079.pdf)).
 
 The package was used to analyze and create the tables presented in
 those reports. At the most basic level, it is meant to perform MCDA on
@@ -48,7 +48,7 @@ This package is not meant for *install*, per se. Rather, it should be
 used on the specific data files for which it was created. As such, it
 is recommended that you simply place this package in a working
 directory containing the scripts that will utilize it. To do this
-either unzip the repositories'
+either unzip this repositories'
 [zip file](http://github.com/lkilcher/score_site/archive/master.zip)
 into a `score_site` folder in the working directory, or `cd` into that working directory, and
 type:
