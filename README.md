@@ -3,7 +3,12 @@ Decision Analysis (MCDA) of wave and tidal market opportunities in the
 U.S.. This package was developed under the U.S. Department of Energy's
 'Early Market Opportunity Hot Spot Identification' project. The
 results of this work are available in the MHK Energy Early Market Site
-Identification and Ranking Methodology reports ([Part I: Wave Energy](http://www.nrel.gov/docs/fy17osti/66038.pdf), and [Part II: Tidal Energy](http://www.nrel.gov/docs/fy17osti/66079.pdf)).
+Identification and Ranking Methodology reports
+([Part I: Wave Energy](http://www.nrel.gov/docs/fy17osti/66038.pdf),
+and
+[Part II: Tidal Energy](http://www.nrel.gov/docs/fy17osti/66079.pdf)). The
+source data used in those reports is available on the MHK Data Repository
+([submission id: 154](https://mhkdr.openei.org/submissions/154)).
 
 The package was used to analyze and create the tables presented in
 those reports. At the most basic level, it is meant to perform MCDA on
