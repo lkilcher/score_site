@@ -19,9 +19,9 @@ an aggregate score (and stores it in 'score_total').
 from copy import deepcopy
 import pandas as pd
 import numpy as np
-from base import cmaps, dict_array
-from io_write import write_excel
-import pdb
+from .base import cmaps, dict_array
+from .io_write import write_excel
+
 
 class SumModel(object):
     """
@@ -58,7 +58,7 @@ class SumModel(object):
     @property
     def maxlen(self, ):
         out = 0
-        for s in self.scorers.itervalues():
+        for s in self.scorers.values():
             out = max(out, len(s))
         return out
 
@@ -92,7 +92,7 @@ class SumModel(object):
                     the output.
         """
         with open(buf, 'w') as fl:
-            for key, scr in self.scorers.iteritems():
+            for key, scr in self.scorers.items():
                 scr.to_html(fl,
                             legend_vals=legend_vals.get(key, None),
                             title=key,
@@ -109,7 +109,7 @@ class SumModel(object):
         format[0, :] = dict(bottom=1)
         format[0, :2] = dict(bottom=1, bold=True)
         colors = ['#CCFFCC', '#FFCC99']
-        for idx, (nm, s) in enumerate(self.scorers.iteritems()):
+        for idx, (nm, s) in enumerate(self.scorers.items()):
             i0 = 3 * idx
             c = colors[idx % 2]
             format[1:4, i0:(i0 + 2)] = dict(bg_color=c)
@@ -161,7 +161,7 @@ class SumModel(object):
         score = pd.Series(np.zeros(len(data.index)),
                           index=data.index)
         zero_1col = np.zeros(len(data.index), dtype='bool')
-        for nm, w in weights.iteritems():
+        for nm, w in weights.items():
             score += data['score_' + nm] * weights[nm]
             zero_1col |= data['score_' + nm] == 0
         if self.zero_1score_zero:
@@ -265,7 +265,7 @@ class ProdModel(SumModel):
     def _calc_total(self, data, weights):
         score = pd.Series(np.ones(len(data.index)),
                           index=data.index)
-        for nm, w in weights.iteritems():
+        for nm, w in weights.items():
             score *= data['score_' + nm] ** weights[nm]
         return score
 

@@ -6,7 +6,7 @@ are used by incorporated them into one of the scoring models in the
 """
 import numpy as np
 import pandas as pd
-from base import cmaps, maxscore
+from .base import cmaps, maxscore
 from matplotlib import pyplot as plt
 
 

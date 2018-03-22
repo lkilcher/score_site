@@ -77,8 +77,7 @@ Examples
 
 """
 
-from base import HotSpot, HotSpotCollection
-import scorers
-from models import ProdModel, SumModel, MultiModel
-from io import load_excel
-from base import cmaps, MyCmap
+from .base import HotSpot, HotSpotCollection, cmaps, MyCmap
+from . import scorers
+from .models import ProdModel, SumModel, MultiModel
+from .io import load_excel

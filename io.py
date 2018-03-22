@@ -2,7 +2,7 @@
 This module defines the function for reading data into
 :class:`base.HotSpotCollections`.
 """
-from base import HotSpotCollection
+from .base import HotSpotCollection
 import pandas as pd
 
 def load_excel(fname):
@@ -30,11 +30,13 @@ def load_excel(fname):
     'dist'), and B) the 'unit' string (e.g. 'kWh' or 'km').
 
     """
+    if pd.__version__ >= '0.20':
+        return HotSpotCollection(**pd.read_excel(fname, sheetname=None, index_col=0))        
     if pd.__version__ > '0.16':
-        return HotSpotCollection(**pd.read_excel(fname, sheetname=None, index_col=0))
+        return HotSpotCollection(**pd.read_excel(fname, sheet_name=None, index_col=0))
     else:
         dat = {}
         fl = pd.ExcelFile(fname, engine='xlsxwriter')
         for nm in fl.sheet_names:
-            dat[nm] = pd.read_excel(fl, sheetname=nm, index_col=0)
+            dat[nm] = pd.read_excel(fl, sheet_name=nm, index_col=0)
         return HotSpotCollection(**dat)

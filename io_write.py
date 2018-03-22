@@ -6,10 +6,19 @@ import pandas as pd
 import xlsxwriter as xlw
 import xlsxwriter.utility as xlu
 import numpy as np
+import six
+
+
+def unique_obj_array(inarr):
+    out = []
+    for val in inarr.flat:
+        if val not in out:
+            out.append(val)
+    return np.array(out, dtype=inarr.dtype).view(type(inarr))
 
 
 def write_excel(buf, array, format=None, sheet_name='Sheet1', index=True, header=True, na_rep=''):
-    if isinstance(buf, basestring):
+    if isinstance(buf, six.string_types):
         wb = xlw.Workbook(buf)
         closefile = True
     else:
@@ -34,7 +43,7 @@ def write_excel(buf, array, format=None, sheet_name='Sheet1', index=True, header
                     else:
                         merge[mval].append((irow, icol))
         formind = np.empty(format.shape, dtype=int)
-        tmp = np.unique(format)
+        tmp = unique_obj_array(format)
         for idx, f in enumerate(tmp):
             if f is not None:
                 forms[idx] = wb.add_format(f)
@@ -60,7 +69,7 @@ def write_excel(buf, array, format=None, sheet_name='Sheet1', index=True, header
             if val is None or (isinstance(val, float) and np.isnan(val)):
                 val = na_rep
             ws.write(irow + header, icol + index, val, f)
-    for val in merge.itervalues():
+    for val in merge.values():
         val = np.array(val)
         rowcol = [val[:, 0].min(),
                   val[:, 1].min(),

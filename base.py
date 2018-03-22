@@ -14,9 +14,10 @@ from matplotlib import pyplot as plt
 import matplotlib.colors as mplc
 import simplekml
 from os import remove, path
-from io_write import write_excel
+from .io_write import write_excel
 import xlsxwriter as xlw
 from copy import deepcopy
+import six
 
 
 def round_sigfig(val, nsig=2):
@@ -86,8 +87,8 @@ class dict_array(np.ndarray):
         self.__setitem__(slice(i, j), val)
 
     def __setitem__(self, ind, val):
-        if isinstance(ind, basestring):
-            for idx in xrange(len(self.flat)):
+        if isinstance(ind, six.string_types):
+            for idx in range(len(self.flat)):
                 self[idx][ind] = val
             return
         subarr = self[ind]
@@ -95,11 +96,11 @@ class dict_array(np.ndarray):
             if subarr.__class__ is dict:  # one value.
                 np.ndarray.__setitem__(self, ind, val.copy())
                 return
-            for idx in xrange(len(subarr.flat)):
+            for idx in range(len(subarr.flat)):
                 subarr.flat[idx] = val.copy()
             return
         if isinstance(val, (list, tuple)) and len(val) == len(subarr.flat):
-            for idx in xrange(len(subarr.flat)):
+            for idx in range(len(subarr.flat)):
                 subarr.flat[idx] = val[idx]
             return
         if isinstance(val, dict_array) and val.size == subarr.size:
@@ -134,7 +135,7 @@ def _format_dframe(dframe, cmaps=None, **kwargs):
     out = dict_array(dframe.shape)
     out[:] = kwargs  # This performs a copy
     for icol, nm in enumerate(dframe.columns):
-        for ky, cm in cmaps.iteritems():
+        for ky, cm in cmaps.items():
             if nm.startswith(ky):
                 scr = dframe.loc[:, nm]
                 nm_dat = nm.split('_', 1)[1]
@@ -460,7 +461,7 @@ class HotSpotCollection(HotSpotBase):
             ## Write the data for each location:
             _write_kmz_legend(kml, cmap=cmap,
                               title=mapdata.rstrip('_total').title() + unt,)
-        for idx in xrange(self.Site.shape[0]):
+        for idx in range(self.Site.shape[0]):
             dnow = self[idx]
             fol = kml.newfolder(name=dnow.name)
             dnow.to_kmz(fol,
@@ -482,7 +483,7 @@ class HotSpotCollection(HotSpotBase):
     def to_results_excel(self, buf, cols,
                          bg_cmaps=None, titles=None, form_dict={},
                          units={}, **kwargs):
-        if isinstance(buf, basestring):
+        if isinstance(buf, six.string_types):
             if not (buf.endswith('.xlsx') or buf.endswith('.xls')):
                 buf += '.xlsx'
             buf = xlw.Workbook(buf)
@@ -512,7 +513,7 @@ class HotSpotCollection(HotSpotBase):
                 form[0, idx:(idx + 2)].update(merge='market')
         if titles is None:
             titles = deepcopy(cols)
-            for idx in xrange(len(titles)):
+            for idx in range(len(titles)):
                 if titles[idx] == 'score_total':
                     titles[idx] = 'Score'
                 if titles[idx] == 'rate_avoid':
@@ -543,7 +544,7 @@ class HotSpotCollection(HotSpotBase):
                              np.arange(1, len(self.data['Site']) + 1)[:, None],
                              self.data['Site'].index[:, None],
                              np.array(self.data['Site'].iloc[:, icol], )))))
-        for nm, f in form_dict.iteritems():
+        for nm, f in form_dict.items():
             if nm in cols:
                 ind = cols.index(nm) + 2
                 form[:, ind].update(**f)
@@ -557,13 +558,13 @@ class HotSpotCollection(HotSpotBase):
             elif nm.startswith('comp_rank'):
                 form[1, idx + 2].update(width=7)
                 form[:, idx + 2].update(align='center', num_format='[<0]-0;[>=0]_-0')
-        for ky, vals in results_change_text.iteritems():
+        for ky, vals in results_change_text.items():
             if ky in cols:
                 ind = cols.index(ky) + 2
-                for old, new in vals.iteritems():
+                for old, new in vals.items():
                     out[out[:, ind] == old, ind] = new
             ind = 1
-            for old, new in results_change_text['name'].iteritems():
+            for old, new in results_change_text['name'].items():
                 out[out[:, ind] == old, ind] = new
         write_excel(buf, out, format=form, sheet_name='results')
 
@@ -586,7 +587,7 @@ class HotSpotCollection(HotSpotBase):
         to the file name.
 
         """
-        if isinstance(buf, basestring):
+        if isinstance(buf, six.string_types):
             if not (buf.endswith('.xlsx') or buf.endswith('.xls')):
                 buf += '.xlsx'
             buf = xlw.Workbook(buf)
@@ -608,7 +609,7 @@ class HotSpotCollection(HotSpotBase):
         if bg_cmaps is not None:
             lgnds = []
             maxlen = 0
-            for nm, cm in bg_cmaps.iteritems():
+            for nm, cm in bg_cmaps.items():
                 if cm is not None and hasattr(cm, 'legend_vals'):
                     lgnds.append(nm)
                     maxlen = max(maxlen, len(cm.legend_vals))
@@ -649,11 +650,11 @@ class HotSpotCollection(HotSpotBase):
                           'style="border-collapse: collapse; text-align:center;"')
         tbl = tbl.replace('<td', '<td style="%s"')
         out = np.empty(ncolor, dtype='O')
-        for idx in xrange(ncolor):
+        for idx in range(ncolor):
             out[idx] = ('background-color:rgb(%d, %d, %d)' %
                         tuple(np.array(cmap(values[idx] / maxscore)[:3]) * 255))
         tbl = tbl % tuple(out)
-        if basestring in buf.__class__.__mro__:
+        if six.string_types in buf.__class__.__mro__:
             if not (buf.endswith('.htm') | buf.endswith('.html')):
                 buf += '.html'
             with open(buf, 'w') as fl:
@@ -701,9 +702,9 @@ class HotSpotCollection(HotSpotBase):
                           '<th style="border-bottom:solid %0.1fpt;">' % hline_widths[0],
                           len(columns) + 1)  # +1 for index
         if self.model is not None and weights_in_head:
-            for var, t in self.model.scorers.iteritems():
+            for var, t in self.model.scorers.items():
                 tbl = tbl.replace(var, var + ' (%0.1g)' % (t.weight,), 1)
-        for irow in xrange(dat.shape[0]):
+        for irow in range(dat.shape[0]):
             # This is for the first (index) column:
             if hline_widths is not None:
                 lw_txt = ('border-bottom:solid %0.1fpt; ' %
@@ -726,7 +727,7 @@ class HotSpotCollection(HotSpotBase):
                     form[irow, icol] += ('background-color:rgb(%d, %d, %d); ' %
                                          tuple(np.array(cmap(self.Site[col_score][irow] / maxscore)[:3]) * 255))
         tbl = tbl.format(form=form)
-        if basestring in buf.__class__.__mro__:
+        if six.string_types in buf.__class__.__mro__:
             if not (buf.endswith('.htm') | buf.endswith('.html')):
                 buf += '.html'
             with open(buf, 'w') as fl:
@@ -829,14 +830,14 @@ class HotSpotCollection(HotSpotBase):
             if 'Resource' in self.data:
                 self.data['Resource'].ix[resbdi, 'score_total'] = -1
         # Sort the results:
-        self.data['Site'] = self.data['Site'].sort(sort_by,
+        self.data['Site'] = self.data['Site'].sort_values(sort_by,
                                                    ascending=ascending)
         if 'Site_all' in self.data:
-            self.data['Site_all'] = self.data['Site_all'].sort(sort_by,
+            self.data['Site_all'] = self.data['Site_all'].sort_values(sort_by,
                                                                ascending=ascending)
             self.data['Site_all'].ix[bdi, 'score_total'] = np.NaN
         if 'Resource' in self.data:
-            self.data['Resource'] = self.data['Resource'].sort(sort_res_by,
+            self.data['Resource'] = self.data['Resource'].sort_values(sort_res_by,
                                                                ascending=ascending_res)
         if not clear_0_nan:
             self.data['Site'].ix[bdi, 'score_total'] = np.NaN
@@ -910,10 +911,10 @@ class HotSpotCollection(HotSpotBase):
     def compare_rank(self, other, name='score_total', append_to_other=False):
         comp = self._zeros_series()
         r = self.data['Site'][name].copy()
-        r.sort(ascending=False)
+        r.sort_values(ascending=False)
         r = pd.Series(np.arange(len(r)), index=r.index)
         ro = other.data['Site'][name].copy()
-        ro.sort(ascending=False)
+        ro.sort_values(ascending=False)
         ro = pd.Series(np.arange(len(ro)), index=ro.index)
         for loc in r.index:
             if loc not in ro.index:
