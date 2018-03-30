@@ -396,6 +396,20 @@ class HotSpotCollection(HotSpotBase):
 
     """
 
+    def drop(self, index):
+        if isinstance(index, six.string_types):
+            index = [index]
+        self.data['Site'] = self.data['Site'].drop(index)
+        good_inds = self.data['Resource']['name'].astype('bool')
+        for ky in index:
+            good_inds &= self.data['Resource']['name'] != ky
+        self.data['Resource'] = self.data['Resource'].loc[good_inds]
+
+    def rename(self, old_name, new_name):
+        self.data['Site'] = self.Site.rename({old_name: new_name})
+        itmp = self.data['Resource']['name'] == old_name
+        self.data['Resource']['name'][itmp] = new_name
+
     def __getitem__(self, val):
         out = deepcopy(self.data)
         try:
